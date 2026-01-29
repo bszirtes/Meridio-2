@@ -1,0 +1,9 @@
+apiVersion: meridio-2.nordix.org/v1alfa1
+kind: L34Route
+metadata:
+  labels:
+    app.kubernetes.io/name: meridio-2
+    app.kubernetes.io/managed-by: kustomize
+  name: l34route-sample
+spec:
+  # TODO(user): Add fields here

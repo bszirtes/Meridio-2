@@ -1,0 +1,8 @@
+## Append samples of your project ##
+resources:
+- meridio-2_v1alfa1_gatewayconfig.yaml
+- meridio-2_v1alfa1_customservice.yaml
+- meridio-2_v1alfa1_l34route.yaml
+- meridio-2_v1alfa1_gatewayrouter.yaml
+- meridio-2_v1alfa1_endpointnetworkconfiguration.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

@@ -1,0 +1,9 @@
+apiVersion: meridio-2.nordix.org/v1alfa1
+kind: EndpointNetworkConfiguration
+metadata:
+  labels:
+    app.kubernetes.io/name: meridio-2
+    app.kubernetes.io/managed-by: kustomize
+  name: endpointnetworkconfiguration-sample
+spec:
+  # TODO(user): Add fields here
