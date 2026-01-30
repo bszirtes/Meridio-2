@@ -14,7 +14,7 @@ spec:
     singular: gatewayconfig
   scope: Namespaced
   versions:
-  - name: v1alfa1
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
         description: GatewayConfig is the Schema for the gatewayconfigs API

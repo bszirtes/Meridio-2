@@ -1,9 +1,9 @@
-apiVersion: meridio-2.nordix.org/v1alfa1
-kind: CustomService
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayConfig
 metadata:
   labels:
     app.kubernetes.io/name: meridio-2
     app.kubernetes.io/managed-by: kustomize
-  name: customservice-sample
+  name: gatewayconfig-sample
 spec:
   # TODO(user): Add fields here

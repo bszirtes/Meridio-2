@@ -15,38 +15,38 @@ resources:
   domain: nordix.org
   group: meridio-2
   kind: GatewayConfig
-  path: github.com/nordix/meridio-2/api/v1alfa1
-  version: v1alfa1
+  path: github.com/nordix/meridio-2/api/v1alpha1
+  version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   domain: nordix.org
   group: meridio-2
   kind: CustomService
-  path: github.com/nordix/meridio-2/api/v1alfa1
-  version: v1alfa1
+  path: github.com/nordix/meridio-2/api/v1alpha1
+  version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   domain: nordix.org
   group: meridio-2
   kind: L34Route
-  path: github.com/nordix/meridio-2/api/v1alfa1
-  version: v1alfa1
+  path: github.com/nordix/meridio-2/api/v1alpha1
+  version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   domain: nordix.org
   group: meridio-2
   kind: GatewayRouter
-  path: github.com/nordix/meridio-2/api/v1alfa1
-  version: v1alfa1
+  path: github.com/nordix/meridio-2/api/v1alpha1
+  version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   domain: nordix.org
   group: meridio-2
   kind: EndpointNetworkConfiguration
-  path: github.com/nordix/meridio-2/api/v1alfa1
-  version: v1alfa1
+  path: github.com/nordix/meridio-2/api/v1alpha1
+  version: v1alpha1
 version: "3"

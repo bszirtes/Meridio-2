@@ -1,4 +1,4 @@
-apiVersion: meridio-2.nordix.org/v1alfa1
+apiVersion: meridio-2.nordix.org/v1alpha1
 kind: EndpointNetworkConfiguration
 metadata:
   labels:

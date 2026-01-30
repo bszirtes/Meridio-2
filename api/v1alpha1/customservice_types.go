@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alfa1
+package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,27 +23,27 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// L34RouteSpec defines the desired state of L34Route
-type L34RouteSpec struct {
+// CustomServiceSpec defines the desired state of CustomService
+type CustomServiceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
-	// foo is an example field of L34Route. Edit l34route_types.go to remove/update
+	// foo is an example field of CustomService. Edit customservice_types.go to remove/update
 	// +optional
 	Foo *string `json:"foo,omitempty"`
 }
 
-// L34RouteStatus defines the observed state of L34Route.
-type L34RouteStatus struct {
+// CustomServiceStatus defines the observed state of CustomService.
+type CustomServiceStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// For Kubernetes API conventions, see:
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 
-	// conditions represent the current state of the L34Route resource.
+	// conditions represent the current state of the CustomService resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
 	// Standard condition types include:
@@ -61,32 +61,32 @@ type L34RouteStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// L34Route is the Schema for the l34routes API
-type L34Route struct {
+// CustomService is the Schema for the customservices API
+type CustomService struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// metadata is a standard object metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitzero"`
 
-	// spec defines the desired state of L34Route
+	// spec defines the desired state of CustomService
 	// +required
-	Spec L34RouteSpec `json:"spec"`
+	Spec CustomServiceSpec `json:"spec"`
 
-	// status defines the observed state of L34Route
+	// status defines the observed state of CustomService
 	// +optional
-	Status L34RouteStatus `json:"status,omitzero"`
+	Status CustomServiceStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// L34RouteList contains a list of L34Route
-type L34RouteList struct {
+// CustomServiceList contains a list of CustomService
+type CustomServiceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitzero"`
-	Items           []L34Route `json:"items"`
+	Items           []CustomService `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&L34Route{}, &L34RouteList{})
+	SchemeBuilder.Register(&CustomService{}, &CustomServiceList{})
 }

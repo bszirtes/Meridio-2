@@ -14,7 +14,7 @@ spec:
     singular: customservice
   scope: Namespaced
   versions:
-  - name: v1alfa1
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
         description: CustomService is the Schema for the customservices API

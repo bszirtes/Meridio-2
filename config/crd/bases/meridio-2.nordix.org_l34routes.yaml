@@ -14,7 +14,7 @@ spec:
     singular: l34route
   scope: Namespaced
   versions:
-  - name: v1alfa1
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
         description: L34Route is the Schema for the l34routes API
