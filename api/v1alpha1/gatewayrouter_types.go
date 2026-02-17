@@ -23,7 +23,6 @@ import (
 
 // GatewayRouterSpec defines the desired state of GatewayRouter
 type GatewayRouterSpec struct {
-
 	GatewayRef gatewayapiv1.ParentReference `json:"gatewayRef"`
 
 	// Name of the interface to reach external gateway

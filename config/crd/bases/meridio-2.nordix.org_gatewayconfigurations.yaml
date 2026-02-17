@@ -221,7 +221,7 @@ spec:
                 type: object
             required:
             - horizontalScaling
-            - networkAttachment
+            - networkAttachments
             - networkSubnets
             type: object
           status:

@@ -70,12 +70,13 @@ type NetworkAttachment struct {
 
 type NAD struct {
 	Interface string `json:"interface"`
-	Name string `json:"name"`
+	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 }
 
 // TODO implement
-type DRA struct { /* ... */ }
+type DRA struct { /* ... */
+}
 
 type HorizontalScaling struct {
 
