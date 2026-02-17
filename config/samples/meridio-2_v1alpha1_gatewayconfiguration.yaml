@@ -1,0 +1,58 @@
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayConfiguration
+metadata:
+  labels:
+    app.kubernetes.io/name: meridio-2
+    app.kubernetes.io/managed-by: kustomize
+  name: gatewayconfiguration-sample
+spec:
+  networkAttachments:
+    - description: "VLAN 100 network for gateway traffic"
+      type: NAD
+      nad:
+        name: vlan-100
+        namespace: default
+        interface: vlan-100
+    - description: "MACVLAN network for application endpoints"
+      type: NAD
+      nad:
+        name: macvlan-nad-1
+        namespace: default
+        interface: net1
+  networkSubnets:
+    - attachmentType: NAD
+      cidrs:
+        - 169.111.100.0/24
+  horizontalScaling:
+    replicas: 2
+    enforceReplicas: true
+  verticalScaling:
+    containers:
+      - name: sllb
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        enforceResources: true
+        resizePolicy:
+          - resourceName: cpu
+            restartPolicy: NotRequired
+          - resourceName: memory
+            restartPolicy: RestartContainer
+      - name: router
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        enforceResources: true
+        resizePolicy:
+          - resourceName: cpu
+            restartPolicy: NotRequired
+          - resourceName: memory
+            restartPolicy: RestartContainer

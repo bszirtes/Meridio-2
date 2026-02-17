@@ -1,0 +1,228 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: endpointnetworkconfigurations.meridio-2.nordix.org
+spec:
+  group: meridio-2.nordix.org
+  names:
+    categories:
+    - meridio
+    - all
+    kind: EndpointNetworkConfiguration
+    listKind: EndpointNetworkConfigurationList
+    plural: endpointnetworkconfigurations
+    shortNames:
+    - enc
+    singular: endpointnetworkconfiguration
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].observedGeneration
+      name: Observed-Gen
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          EndpointNetworkConfiguration is the Schema for the endpointnetworkconfigurations API.
+          Defines the declarative network contract for a specific application Pod.
+          The name of the resource MUST be identical to the Pod's name for
+          automatic discovery by local agents.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: EndpointNetworkConfigurationSpec defines the desired state
+              of the Pod's networking.
+            properties:
+              gateways:
+                description: 'Gateways: List of Gateways the Pod has joined.'
+                items:
+                  description: GatewayConnection defines the desired state for a specific
+                    Gateway connection.
+                  properties:
+                    domains:
+                      description: 'Domains: The dual-stack network configurations
+                        for this specific Gateway.'
+                      items:
+                        description: NetworkDomain represents the desired networking
+                          state for a specific network segment.
+                        properties:
+                          ipFamily:
+                            description: |-
+                              IPFamily: The IP version used in this domain.
+                              This helps the consumer apply protocol-specific settings (like IPv6 nodad).
+                            enum:
+                            - IPv4
+                            - IPv6
+                            type: string
+                          name:
+                            description: |-
+                              Name: A unique logical identifier for this domain (e.g., "sllb-a-v4").
+                              The consumer uses this name to maintain local resource state, such as
+                              routing table ID mapping.
+                            type: string
+                          network:
+                            description: |-
+                              Network: Parameters used to identify and validate the physical or
+                              virtual interface associated with this domain.
+                            properties:
+                              interfaceHint:
+                                description: |-
+                                  InterfaceHint: An optional interface name (e.g., "net1") to accelerate
+                                  the discovery process.
+                                type: string
+                              subnet:
+                                description: |-
+                                  Subnet: The network prefix expected on the target interface (e.g., "192.168.1.0/24").
+                                  The processing entity MUST verify this subnet matches the interface's primary IP
+                                  to ensure configuration is applied to the correct network segment.
+                                maxLength: 64
+                                type: string
+                            required:
+                            - subnet
+                            type: object
+                          nextHops:
+                            description: |-
+                              NextHops: Addresses for source-based routing.
+                              If provided, the consumer MUST steer all return traffic or traffic
+                              originating from a VIP through these IPs using a dedicated routing table.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          vips:
+                            description: |-
+                              VIPs: Virtual IP addresses to be assigned as local IPs on the interface.
+                              These addresses can serve as the source IPs for outbound traffic; the consumer
+                              MUST ensure traffic originating from these VIPs is steered according to the
+                              domain's configuration (e.g., via source-based routing).
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                        - ipFamily
+                        - name
+                        - network
+                        type: object
+                        x-kubernetes-validations:
+                        - message: Subnet IP family mismatch
+                          rule: 'cidr(self.network.subnet).ip().family() == (self.ipFamily
+                            == ''IPv4'' ? 4 : 6)'
+                      maxItems: 2
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - ipFamily
+                      x-kubernetes-list-type: map
+                    name:
+                      description: 'Name: The identifier of the remote Gateway.'
+                      type: string
+                  required:
+                  - domains
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            type: object
+          status:
+            description: |-
+              EndpointNetworkConfigurationStatus defines the observed state of the network plumbing.
+              Using ObservedGeneration within conditions is recommended to track which version of the
+              Spec each individual condition represents.
+            properties:
+              conditions:
+                description: |-
+                  Conditions represent the latest available observations of the state.
+                  Common types: "Ready".
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
