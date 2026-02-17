@@ -203,13 +203,7 @@
 - [ ] Update CR when configuration changes (VIPs, next-hops, Gateways)
 - [ ] Handle CR already exists (update, don't fail)
 
-### 3.7 Status Monitoring
-- [ ] Watch EndpointNetworkConfiguration.status
-- [ ] Track sidecar application status (observedGeneration, conditions)
-- [ ] Emit events for configuration failures
-- [ ] Retry on transient failures
-
-### 3.8 Edge Cases
+### 3.7 Edge Cases
 - [ ] Handle Pod without secondary network (skip, emit warning event)
 - [ ] Handle Pod in multiple DistributionGroups (multiple gateway configs)
 - [ ] Handle Gateway with no ready LB Pods (empty next-hops, sidecar waits)
