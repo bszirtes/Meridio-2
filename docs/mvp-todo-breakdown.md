@@ -354,7 +354,7 @@
 
 **Purpose**: Apply VIPs and source-based routing to application pod network namespace.
 
-**Reference**: Similar to POC's `podnetworkannotator`. See [Issue #6 comment](https://github.com/Nordix/Meridio-2/issues/6#issuecomment-3778682810).
+**Note**: The sidecar is the chosen alternative for Application Network Configuration Injection (instead of POC's Network Daemon approach). The sidecar consumes the EndpointNetworkConfiguration CR produced by the controller (Section 3).
 
 ### 6.1 Initialization
 - [ ] Determine Pod identity (env vars: `POD_NAME`, `POD_NAMESPACE`)
