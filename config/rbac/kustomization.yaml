@@ -34,7 +34,7 @@ resources:
 - l34route_admin_role.yaml
 - l34route_editor_role.yaml
 - l34route_viewer_role.yaml
-- gatewayconfig_admin_role.yaml
-- gatewayconfig_editor_role.yaml
-- gatewayconfig_viewer_role.yaml
+- gatewayconfiguration_admin_role.yaml
+- gatewayconfiguration_editor_role.yaml
+- gatewayconfiguration_viewer_role.yaml
 
