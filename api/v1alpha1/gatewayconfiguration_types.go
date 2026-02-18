@@ -109,6 +109,7 @@ type ContainerArgs struct {
 	// If false, controller ignores 'resources', deferring to VPA/other external tool.
 	EnforceResources bool `json:"enforceResources"`
 
+	// +optional
 	ResizePolicy []corev1.ContainerResizePolicy `json:"resizePolicy,omitempty"`
 }
 
