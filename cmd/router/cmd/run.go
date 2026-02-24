@@ -32,6 +32,7 @@ import (
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 	"github.com/nordix/meridio-2/internal/controller"
+	"github.com/nordix/meridio-2/pkg/bird"
 )
 
 type runOptions struct {
@@ -84,13 +85,14 @@ func (ro *runOptions) run(ctx context.Context) {
 		panic(err)
 	}
 
-	// TODO: Initialize routing suite (BIRD/FRR)
+	birdInstance := bird.New()
 
 	if err = (&controller.GatewayRouterReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		GatewayName:      ro.name,
 		GatewayNamespace: ro.namespace,
+		Bird:             birdInstance,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "failed to create controller", "controller", "GatewayRouter")
 		panic(err)
@@ -107,6 +109,12 @@ func (ro *runOptions) run(ctx context.Context) {
 	}
 
 	setupLog.Info("starting router", "gateway", ro.name, "namespace", ro.namespace)
+
+	go func() {
+		if err := birdInstance.Run(ctx); err != nil {
+			setupLog.Error(err, "BIRD stopped")
+		}
+	}()
 
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "failed to start manager")

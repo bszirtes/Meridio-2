@@ -29,6 +29,7 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
+	"github.com/nordix/meridio-2/pkg/bird"
 )
 
 // GatewayRouterReconciler reconciles a GatewayRouter object
@@ -39,6 +40,8 @@ type GatewayRouterReconciler struct {
 	GatewayName string
 	// Namespace of the gateway in which this controller is running
 	GatewayNamespace string
+	// BIRD instance
+	Bird *bird.Bird
 }
 
 // +kubebuilder:rbac:groups=meridio-2.nordix.org,resources=gatewayrouters,verbs=get;list;watch
@@ -62,22 +65,30 @@ func (r *GatewayRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	gateway := &gatewayapiv1.Gateway{}
 	err := r.Get(ctx, req.NamespacedName, gateway)
 	if err != nil {
+		log.Info("DBG: no gateway")
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get gateway: %w", err)
 	}
 
+	log.Info("DBG: got gateway")
+
 	gatewayRouters, err := r.getGatewayRouters(ctx)
 	if err != nil {
+		log.Info("DBG: no gatwayrouters")
 		return ctrl.Result{}, fmt.Errorf("failed to get gateway routers: %w", err)
 	}
+
+	log.Info("DBG: got gatewayrouters")
 
 	vips := getVIPs(gateway)
 
 	log.Info("Reconciling router", "vips", vips, "gatewayRouters", len(gatewayRouters))
 
-	// TODO: Configure routing suite (BIRD/FRR) with VIPs and gateway routers
+	if err := r.Bird.Configure(ctx, vips, gatewayRouters); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to configure BIRD: %w", err)
+	}
 
 	return ctrl.Result{}, nil
 }
