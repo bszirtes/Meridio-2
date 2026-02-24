@@ -14,16 +14,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package cmd
 
 import (
-	"os"
+	"fmt"
 
-	"github.com/nordix/meridio-2/cmd/controller-manager/cmd"
+	"github.com/spf13/cobra"
+
+	"github.com/nordix/meridio-2/internal/common/version"
 )
 
-func main() {
-	if err := cmd.NewRootCmd().Execute(); err != nil {
-		os.Exit(1)
+// NewVersionCmd creates the version subcommand
+func NewVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println(version.Get())
+		},
 	}
 }

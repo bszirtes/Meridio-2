@@ -1,31 +1,48 @@
-# Build the manager binary
+# Global build args
+ARG USER=meridio
+ARG UID=10005
+
+# Build stage
 FROM golang:1.25 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
 WORKDIR /workspace
-# Copy the Go Modules manifests
-COPY go.mod go.mod
-COPY go.sum go.sum
-# cache deps before building and copying source so that we don't need to re-download as much
-# and so that source changes don't invalidate our downloaded layer
+
+# Copy go mod files
+COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the Go source (relies on .dockerignore to filter)
-COPY . .
+# Copy source code
+COPY cmd/ cmd/
+COPY api/ api/
+COPY internal/ internal/
+COPY hack/ hack/
 
 # Build
-# the GOARCH has no default value to allow the binary to be built according to the host where the command
-# was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
-# the docker BUILDPLATFORM arg will be linux/arm64 when for Apple x86 it will be linux/amd64. Therefore,
-# by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/controller-manager/main.go
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
 
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
-WORKDIR /
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
+    -ldflags="-extldflags -static \
+              -X github.com/nordix/meridio-2/internal/common/version.Version=${VERSION} \
+              -X github.com/nordix/meridio-2/internal/common/version.GitCommit=${GIT_COMMIT} \
+              -X github.com/nordix/meridio-2/internal/common/version.BuildDate=${BUILD_DATE}" \
+    -a -o manager cmd/controller-manager/main.go
+
+# Runtime stage
+FROM alpine:3.22
+ARG USER
+ARG UID
+ARG HOME=/home/${USER}
+
+RUN addgroup -g ${UID} ${USER} \
+  && adduser -D -h ${HOME} -u ${UID} -G ${USER} ${USER} \
+  && chown -R :root "${HOME}" && chmod -R g+s=u "${HOME}"
+
+WORKDIR ${HOME}
 COPY --from=builder /workspace/manager .
-USER 65532:65532
+USER ${UID}:${UID}
 
-ENTRYPOINT ["/manager"]
+ENTRYPOINT ["./manager", "run"]

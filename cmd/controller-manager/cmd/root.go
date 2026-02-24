@@ -14,16 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package cmd
 
 import (
-	"os"
-
-	"github.com/nordix/meridio-2/cmd/controller-manager/cmd"
+	"github.com/spf13/cobra"
 )
 
-func main() {
-	if err := cmd.NewRootCmd().Execute(); err != nil {
-		os.Exit(1)
+// NewRootCmd creates the root command for controller-manager
+func NewRootCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "controller-manager",
+		Short: "Meridio-2 Controller Manager",
+		Long:  "Manages Gateway API resources for L3/L4 load balancing",
 	}
+
+	cmd.AddCommand(NewRunCmd())
+	cmd.AddCommand(NewVersionCmd())
+
+	return cmd
 }

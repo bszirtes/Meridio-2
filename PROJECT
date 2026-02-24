@@ -53,4 +53,11 @@ resources:
   kind: EndpointNetworkConfiguration
   path: github.com/nordix/meridio-2/api/v1alpha1
   version: v1alpha1
+- controller: true
+  domain: k8s.io
+  external: true
+  group: gateway.networking.k8s.io
+  kind: Gateway
+  path: sigs.k8s.io/gateway-api/apis/v1
+  version: v1
 version: "3"

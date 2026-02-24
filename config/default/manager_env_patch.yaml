@@ -1,0 +1,8 @@
+# Patch to inject runtime environment variables via Downward API
+- op: add
+  path: /spec/template/spec/containers/0/env
+  value:
+  - name: MERIDIO_NAMESPACE
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace

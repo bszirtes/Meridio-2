@@ -14,16 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package gateway
 
 import (
-	"os"
-
-	"github.com/nordix/meridio-2/cmd/controller-manager/cmd"
+	. "github.com/onsi/ginkgo/v2"
 )
 
-func main() {
-	if err := cmd.NewRootCmd().Execute(); err != nil {
-		os.Exit(1)
-	}
-}
+var _ = Describe("Gateway Controller", func() {
+	Context("When reconciling a resource", func() {
+
+		It("should successfully reconcile the resource", func() {
+
+			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
+			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		})
+	})
+})

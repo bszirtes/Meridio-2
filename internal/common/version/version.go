@@ -14,16 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package version
 
-import (
-	"os"
+import "fmt"
 
-	"github.com/nordix/meridio-2/cmd/controller-manager/cmd"
+// These variables are set via ldflags during build
+var (
+	Version   = "dev"
+	GitCommit = "unknown"
+	BuildDate = "unknown"
 )
 
-func main() {
-	if err := cmd.NewRootCmd().Execute(); err != nil {
-		os.Exit(1)
-	}
+// Get returns formatted version information
+func Get() string {
+	return fmt.Sprintf("Version: %s\nCommit: %s\nBuilt: %s", Version, GitCommit, BuildDate)
 }
