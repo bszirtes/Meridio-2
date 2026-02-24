@@ -51,23 +51,13 @@ type L34RouteSpec struct {
 	ParentRefs []gatewayapiv1.ParentReference `json:"parentRefs"`
 
 	// BackendRefs defines the backend(s) where matching requests should be
-	// sent. If unspecified or invalid (refers to a non-existent resource or a
-	// Service with no endpoints), the underlying implementation MUST actively
-	// reject connection attempts to this backend. Connection rejections must
-	// respect weight; if an invalid backend is requested to have 80% of
-	// connections, then 80% of connections must be rejected instead.
+	// sent.
 	//
-	// Support: Core for Kubernetes Service
-	//
-	// Support: Extended for Kubernetes ServiceImport
-	//
-	// Support: Implementation-specific for any other resource
-	//
-	// Support for weight: Extended
+	// Support: DistributionGroup
 	//
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=1
-	BackendRefs []gatewayapiv1.BackendRef `json:"backendRefs,omitempty"`
+	BackendRefs []L34BackendRef `json:"backendRefs,omitempty"`
 
 	// Destination CIDRs that this L34Route will send traffic to.
 	// It is interpreted by the implementation as the set of VIPs exposed by the Gateway.
@@ -128,6 +118,28 @@ type L34RouteSpec struct {
 	// +kubebuilder:validation:items:MaxLength=80
 	// +kubebuilder:validation:XValidation:message="each byteMatch must be a valid string",rule="self.all(byteMatch, byteMatch.matches(\"^(sctp|tcp|udp)\\\\[[0-9]+ *: *[124]\\\\]( *& *0x[0-9a-f]+)? *= *([0-9]+|0x[0-9a-f]+)$\"))"
 	ByteMatches []string `json:"byteMatches,omitempty"`
+}
+
+// L34BackendRef defines a reference to a backend in the L34Route.
+type L34BackendRef struct {
+	// Group is the API group of the referent.
+	// +kubebuilder:default="gateway.networking.k8s.io"
+	// +optional
+	Group *string `json:"group,omitempty"`
+
+	// Kind is the type of the referent.
+	// +kubebuilder:default="DistributionGroup"
+	// +optional
+	Kind *string `json:"kind,omitempty"`
+
+	// Name is the name of the referent.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+
+	// Namespace is the namespace of the referent.
+	// +optional
+	Namespace *string `json:"namespace,omitempty"`
 }
 
 // L34RouteStatus defines the observed state of L34Route.

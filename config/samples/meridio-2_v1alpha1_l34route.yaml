@@ -11,8 +11,6 @@ spec:
     - name: sllb-a
   backendRefs:
     - name: distribution-group-sample
-      group: meridio-2.nordix.org
-      kind: DistributionGroup
   priority: 10
   destinationCIDRs:
     - "20.0.0.1/32"
