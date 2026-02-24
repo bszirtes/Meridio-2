@@ -102,24 +102,6 @@ func (c *ManagerConfig) BindEnv(fs *pflag.FlagSet) {
 	bindString(fs, "metrics-cert-key", "MERIDIO_METRICS_CERT_KEY", &c.MetricsCertKey)
 }
 
-func bindString(fs *pflag.FlagSet, flagName, envName string, target *string) {
-	if !fs.Changed(flagName) {
-		if val := os.Getenv(envName); val != "" {
-			*target = val
-		}
-	}
-}
-
-func bindBool(fs *pflag.FlagSet, flagName, envName string, target *bool) {
-	if !fs.Changed(flagName) {
-		if val := os.Getenv(envName); val != "" {
-			if parsed, err := strconv.ParseBool(val); err == nil {
-				*target = parsed
-			}
-		}
-	}
-}
-
 func bindInt(fs *pflag.FlagSet, flagName, envName string, target *int) {
 	if !fs.Changed(flagName) {
 		if val := os.Getenv(envName); val != "" {
