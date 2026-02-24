@@ -18,11 +18,12 @@ help: ## Display this help.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-IMAGES ?= controller-manager
+IMAGES ?= controller-manager router
 
 # Versions
 VERSION ?= latest
 VERSION_CONTROLLER_MANAGER ?= $(VERSION)
+VERSION_ROUTER ?= $(VERSION)
 LOCAL_VERSION ?= $(VERSION)
 
 # Container registry
@@ -84,6 +85,10 @@ push:
 .PHONY: controller-manager
 controller-manager: ## Build the controller-manager.
 	VERSION=$(VERSION_CONTROLLER_MANAGER) IMAGE=controller-manager $(MAKE) -s $(BUILD_STEPS)
+
+.PHONY: router
+router: ## Build the router.
+	VERSION=$(VERSION_ROUTER) IMAGE=router $(MAKE) -s $(BUILD_STEPS)
 
 ################################################################################
 ##@ Testing & Code check
