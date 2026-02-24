@@ -1,9 +1,9 @@
-#.PHONY: default
-#default:
-#	$(MAKE) -s $(IMAGES)
+.PHONY: default
+default:
+	$(MAKE) -s $(IMAGES)
 
-#.PHONY: all
-#all: default
+.PHONY: all
+all: default
 
 .PHONY: help
 help: ## Display this help.
@@ -18,14 +18,19 @@ help: ## Display this help.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-# IMAGES ?=
+IMAGES ?= controller-manager
 
 # Versions
 VERSION ?= latest
+VERSION_CONTROLLER_MANAGER ?= $(VERSION)
 LOCAL_VERSION ?= $(VERSION)
 
 # Container registry
-REGISTRY ?= registry.nordix.org/cloud-native/meridio-2
+REGISTRY ?= localhost:5001
+# REGISTRY ?= registry.nordix.org/cloud-native/meridio-2
+
+# Namespace to deploy into
+NAMESPACE ?= meridio-2
 
 # Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
@@ -70,7 +75,9 @@ push:
 ##@ Component (Build, tag, push): Use VERSION to set the version. Use BUILD_STEPS to set the build steps (build, tag, push).
 ################################################################################
 
-
+.PHONY: controller-manager
+controller-manager: ## Build the controller-manager.
+	VERSION=$(VERSION_CONTROLLER_MANAGER) IMAGE=controller-manager $(MAKE) -s $(BUILD_STEPS)
 
 ################################################################################
 ##@ Testing & Code check
@@ -133,8 +140,9 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
 
 .PHONY: deploy
-deploy: manifests kustomize cert-manager ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
+deploy: controller-manager manifests kustomize cert-manager ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	cd config/manager && "$(KUSTOMIZE)" edit set image controller=$(REGISTRY)/controller-manager:$(VERSION_CONTROLLER_MANAGER)
+	cd config/default && "$(KUSTOMIZE)" edit set namespace $(NAMESPACE)
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
 
 .PHONY: undeploy
