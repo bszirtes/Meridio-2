@@ -59,11 +59,13 @@ spec:
           type: RuntimeDefault
       containers:
       - command:
-        - /manager
+        - ./manager
         args:
+          - run
           - --leader-elect
+          - --controller-name=registry.nordix.org/cloud-native/meridio-2/gateway-controller
           - --health-probe-bind-address=:8081
-        image: controller:latest
+        image: controller-manager:latest
         name: manager
         ports: []
         securityContext:

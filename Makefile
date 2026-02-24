@@ -54,6 +54,8 @@ CERT_MANAGER_VERSION ?= v1.16.2
 # Build
 BUILD_DIR ?= build
 BUILD_STEPS ?= build tag push
+GIT_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE ?= $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 
 ################################################################################
 # Image: Build, tag, push
@@ -61,7 +63,11 @@ BUILD_STEPS ?= build tag push
 
 .PHONY: build
 build:
-	docker build -t $(IMAGE):$(LOCAL_VERSION) -f ./$(BUILD_DIR)/$(IMAGE)/Dockerfile .
+	docker build -t $(IMAGE):$(LOCAL_VERSION) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-f ./$(BUILD_DIR)/$(IMAGE)/Dockerfile .
 
 .PHONY: tag
 tag:
@@ -140,14 +146,21 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
 
 .PHONY: deploy
-deploy: controller-manager manifests kustomize cert-manager ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=$(REGISTRY)/controller-manager:$(VERSION_CONTROLLER_MANAGER)
+deploy: manifests kustomize cert-manager ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	cd config/controller-manager && "$(KUSTOMIZE)" edit set image controller-manager=$(REGISTRY)/controller-manager:$(VERSION_CONTROLLER_MANAGER)
 	cd config/default && "$(KUSTOMIZE)" edit set namespace $(NAMESPACE)
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: build-installer
+build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+	mkdir -p dist
+	cd config/controller-manager && "$(KUSTOMIZE)" edit set image controller-manager=$(REGISTRY)/controller-manager:$(VERSION_CONTROLLER_MANAGER)
+	cd config/default && "$(KUSTOMIZE)" edit set namespace $(NAMESPACE)
+	"$(KUSTOMIZE)" build config/default > dist/install.yaml
 
 ################################################################################
 # Tools
