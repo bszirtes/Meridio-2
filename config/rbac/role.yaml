@@ -30,3 +30,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - meridio-2.nordix.org
+  resources:
+  - gatewayrouters
+  verbs:
+  - get
+  - list
+  - watch

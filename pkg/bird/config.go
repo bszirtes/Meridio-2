@@ -182,7 +182,10 @@ func routerConfig(router *meridio2v1alpha1.GatewayRouter) (string, error) {
 		bfd, holdTime, ipFamily), nil
 }
 
-func isIPv6(ip string) bool {
-	parsed := net.ParseIP(ip)
-	return parsed != nil && parsed.To4() == nil
+func isIPv6(ipOrCIDR string) bool {
+	ip, _, err := net.ParseCIDR(ipOrCIDR)
+	if err != nil {
+		ip = net.ParseIP(ipOrCIDR)
+	}
+	return ip != nil && ip.To4() == nil
 }

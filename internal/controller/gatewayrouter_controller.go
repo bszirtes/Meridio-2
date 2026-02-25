@@ -22,6 +22,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -73,10 +74,9 @@ func (r *GatewayRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	log.Info("DBG: got gateway")
-
-	gatewayRouters, err := r.getGatewayRouters(ctx)
+	gatewayRouters, err := r.getGatewayRouters(ctx, req.NamespacedName)
 	if err != nil {
-		log.Info("DBG: no gatwayrouters")
+		log.Info("DBG: no gatewayrouters")
 		return ctrl.Result{}, fmt.Errorf("failed to get gateway routers: %w", err)
 	}
 
@@ -93,6 +93,7 @@ func (r *GatewayRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *GatewayRouterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -102,17 +103,30 @@ func (r *GatewayRouterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *GatewayRouterReconciler) getGatewayRouters(ctx context.Context) ([]*meridio2v1alpha1.GatewayRouter, error) {
+func makeNamespacedName(ref gatewayapiv1.ParentReference, defaultNs string) types.NamespacedName {
+	ns := defaultNs;
+	if ref.Namespace != nil {
+		ns = string(*ref.Namespace)
+	}
+	return types.NamespacedName {
+		Name: string(ref.Name),
+		Namespace: ns, 
+	}
+}
+
+func (r *GatewayRouterReconciler) getGatewayRouters(ctx context.Context, gateway types.NamespacedName) ([]*meridio2v1alpha1.GatewayRouter, error) {
 	list := &meridio2v1alpha1.GatewayRouterList{}
-	err := r.List(ctx, list, client.InNamespace(r.GatewayNamespace))
+	err := r.List(ctx, list, client.InNamespace(gateway.Namespace))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list gateway routers: %w", err)
 	}
 
 	result := make([]*meridio2v1alpha1.GatewayRouter, 0, len(list.Items))
 	for i := range list.Items {
-		// TODO: Filter by gateway reference
-		result = append(result, &list.Items[i])
+		ref := makeNamespacedName(list.Items[i].Spec.GatewayRef, gateway.Namespace)
+		if ref == gateway {
+			result = append(result, &list.Items[i])
+		}
 	}
 	return result, nil
 }

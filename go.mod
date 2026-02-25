@@ -6,16 +6,14 @@ require (
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/stretchr/testify v1.11.1
+	github.com/vishvananda/netlink v1.3.1
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
 	sigs.k8s.io/controller-runtime v0.23.0
 	sigs.k8s.io/gateway-api v1.4.1
 )
 
-require (
-	github.com/vishvananda/netlink v1.3.1 // indirect
-	github.com/vishvananda/netns v0.0.5 // indirect
-)
+require github.com/vishvananda/netns v0.0.5 // indirect
 
 require (
 	cel.dev/expr v0.24.0 // indirect

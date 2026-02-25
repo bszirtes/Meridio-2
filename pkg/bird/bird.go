@@ -87,19 +87,26 @@ func (b *Bird) Configure(ctx context.Context, vips []string, routers []*meridio2
 	return setPolicyRoutes(vips)
 }
 
+func (b *Bird) generateConfig(vips []string, routers []*meridio2v1alpha1.GatewayRouter) (string, error) {
+	routersConf, err := routersConfig(routers)
+	if err != nil {
+		return "", err
+	}
+	return baseConfig() + "\n\n" + vipsConfig(vips) + "\n\n" + routersConf, nil
+}
+
 func (b *Bird) writeConfig(vips []string, routers []*meridio2v1alpha1.GatewayRouter) error {
+	conf, err := b.generateConfig(vips, routers)
+	if err != nil {
+		return err
+	}
+
 	file, err := os.Create(b.ConfigFile)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	routersConf, err := routersConfig(routers)
-	if err != nil {
-		return err
-	}
-	conf := baseConfig() + "\n\n" + vipsConfig(vips) + "\n\n" + routersConf
-	//fmt.Println("BIRDCONF(\"\n" + conf + "\n\")END_BIRDCONF")
 	_, err = file.WriteString(conf)
 	return err
 }
