@@ -123,7 +123,7 @@ type L34RouteSpec struct {
 // L34BackendRef defines a reference to a backend in the L34Route.
 type L34BackendRef struct {
 	// Group is the API group of the referent.
-	// +kubebuilder:default="gateway.networking.k8s.io"
+	// +kubebuilder:default="distributiongroups.meridio-2.nordix.org"
 	// +optional
 	Group *string `json:"group,omitempty"`
 

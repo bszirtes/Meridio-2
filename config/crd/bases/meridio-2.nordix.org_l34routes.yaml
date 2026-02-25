@@ -50,7 +50,7 @@ spec:
                     L34Route.
                   properties:
                     group:
-                      default: gateway.networking.k8s.io
+                      default: distributiongroups.meridio-2.nordix.org
                       description: Group is the API group of the referent.
                       type: string
                     kind:
