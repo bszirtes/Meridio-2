@@ -13,6 +13,7 @@ WORKDIR /workspace
 COPY go.mod go.mod
 COPY go.sum go.sum
 
+RUN go mod tidy
 RUN go mod download
 
 COPY . .
@@ -30,7 +31,7 @@ RUN apk update && apk add iproute2 tcpdump nftables bird iputils net-tools libca
   && setcap 'cap_net_raw+ep' /bin/ping \
   && setcap 'cap_net_raw+ep' /usr/bin/tcpdump
 
-RUN mkdir -p /run/bird && mkdir -p /etc/bird && chmod ag+rx
+RUN mkdir -p /run/bird && mkdir -p /etc/bird
 RUN addgroup --gid $UID $USER \
   && adduser $USER --home $HOME --uid $UID -G $USER --disabled-password \
   && chown -R :root "${HOME}" && chmod -R g+s=u "${HOME}"

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package router
 
 import (
 	"context"
@@ -58,30 +58,27 @@ func (r *GatewayRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	log := logf.FromContext(ctx)
 
 	if req.Name != r.GatewayName || req.Namespace != r.GatewayNamespace {
-		log.Info("DBG: cr got filtered out")
 		return ctrl.Result{}, nil
 	}
-	log.Info("DBG: got thorugh gatewayname, and namespace")
 
 	gateway := &gatewayapiv1.Gateway{}
 	err := r.Get(ctx, req.NamespacedName, gateway)
 	if err != nil {
-		log.Info("DBG: no gateway")
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get gateway: %w", err)
 	}
 
-	log.Info("DBG: got gateway")
 	gatewayRouters, err := r.getGatewayRouters(ctx, req.NamespacedName)
 	if err != nil {
-		log.Info("DBG: no gatewayrouters")
 		return ctrl.Result{}, fmt.Errorf("failed to get gateway routers: %w", err)
 	}
 
-	log.Info("DBG: got gatewayrouters")
 
+	// TODO will Gateway.Status.Addresses be in cidr format, or ip only without a prefix
+	// Bird requires cidr notation, whereas the gatewayapi docs doesn't have such type, even though
+	// cidr string can be fed to it
 	vips := getVIPs(gateway)
 
 	log.Info("Reconciling router", "vips", vips, "gatewayRouters", len(gatewayRouters))

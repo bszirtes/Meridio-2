@@ -31,7 +31,7 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
-	"github.com/nordix/meridio-2/internal/controller"
+	"github.com/nordix/meridio-2/internal/controller/router"
 	"github.com/nordix/meridio-2/pkg/bird"
 )
 
@@ -87,7 +87,7 @@ func (ro *runOptions) run(ctx context.Context) {
 
 	birdInstance := bird.New()
 
-	if err = (&controller.GatewayRouterReconciler{
+	if err = (&router.GatewayRouterReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		GatewayName:      ro.name,
