@@ -33,7 +33,7 @@ make deploy
 
 ### Test Cases
 
-**Note**: All examples include the required `parentRefs` and `backendRefs` fields. The Gateway and CustomService referenced don't need to exist for webhook validation to work.
+**Note**: All examples include the required `parentRefs` and `backendRefs` fields. The Gateway and DistributionGroup referenced don't need to exist for webhook validation to work.
 
 #### 1. Valid L34Route (should succeed)
 
@@ -51,7 +51,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.1/32"
   sourceCIDRs:
@@ -83,7 +83,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   priority: 10
   destinationCIDRs:
     - "20.0.0.1/32"
@@ -117,7 +117,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.1/32"
   protocols:
@@ -145,7 +145,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.1/32"
   sourceCIDRs:
@@ -175,7 +175,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "2001:db8::1/128"
   sourceCIDRs:
@@ -205,7 +205,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.1/32"
     - "192.168.1.1/32"
@@ -233,7 +233,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.1/32"
   sourcePorts:
@@ -263,7 +263,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.1/32"
   destinationPorts:
@@ -293,7 +293,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.0/24"
   protocols:
@@ -317,7 +317,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.1/32"
   protocols:
@@ -344,7 +344,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   destinationCIDRs:
     - "192.168.1.1/32"
   destinationPorts:
@@ -373,7 +373,7 @@ spec:
   backendRefs:
     - name: service-a
       group: meridio-2.nordix.org
-      kind: CustomService
+      kind: DistributionGroup
   sourceCIDRs:
     - "10.0.0.0/24"
   destinationCIDRs:

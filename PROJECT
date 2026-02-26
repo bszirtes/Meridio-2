@@ -22,7 +22,7 @@ resources:
     namespaced: true
   domain: nordix.org
   group: meridio-2
-  kind: CustomService
+  kind: DistributionGroup
   path: github.com/nordix/meridio-2/api/v1alpha1
   version: v1alpha1
 - api:
