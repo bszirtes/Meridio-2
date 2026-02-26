@@ -87,7 +87,7 @@ controller-manager: ## Build the controller-manager.
 	VERSION=$(VERSION_CONTROLLER_MANAGER) IMAGE=controller-manager $(MAKE) -s $(BUILD_STEPS)
 
 .PHONY: stateless-load-balancer
-stateless-load-balancer: ## Build the stateless-load-balancer
+stateless-load-balancer: ## Build the stateless-load-balancer.
 	VERSION=$(VERSION_SLLB) IMAGE=stateless-load-balancer $(MAKE) -s $(BUILD_STEPS)
 
 ################################################################################
