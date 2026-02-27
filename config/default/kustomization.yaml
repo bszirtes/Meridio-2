@@ -1,5 +1,5 @@
 # Adds namespace to all resources.
-namespace: meridio-2-system
+namespace: meridio-2
 
 # Value of this field is prepended to the
 # names of all resources, e.g. a deployment named
