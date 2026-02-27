@@ -1,0 +1,50 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: meridio-stateless-lb
+spec:
+  controllerName: registry.nordix.org/cloud-native/meridio-2/gateway-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: test-gateway
+  namespace: default
+spec:
+  gatewayClassName: meridio-stateless-lb
+  listeners:
+  - name: tcp
+    protocol: TCP
+    port: 8080
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: DistributionGroup
+metadata:
+  name: web-backends
+  namespace: default
+spec:
+  type: Maglev
+  maglev:
+    maxEndpoints: 32
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: L34Route
+metadata:
+  name: web-route
+  namespace: default
+spec:
+  parentRefs:
+  - name: test-gateway
+    namespace: default
+  destinationCIDRs:
+  - 20.0.0.1/32
+  protocols:
+  - TCP
+  destinationPorts:
+  - "80"
+  priority: 100
+  backendRefs:
+  - group: meridio-2.nordix.org
+    kind: DistributionGroup
+    name: web-backends

@@ -1,0 +1,91 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-gateway-lb
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: stateless-lb-test
+rules:
+- apiGroups: [""]
+  resources: ["endpoints", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["gateways"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["meridio-2.nordix.org"]
+  resources: ["distributiongroups", "l34routes"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: stateless-lb-test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: stateless-lb-test
+subjects:
+- kind: ServiceAccount
+  name: test-gateway-lb
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-gateway-lb
+  namespace: default
+  labels:
+    app: stateless-load-balancer
+    gateway: test-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stateless-load-balancer
+      gateway: test-gateway
+  template:
+    metadata:
+      labels:
+        app: stateless-load-balancer
+        gateway: test-gateway
+    spec:
+      serviceAccountName: test-gateway-lb
+      initContainers:
+      - name: sysctl-init
+        image: busybox:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          sysctl -w net.ipv4.conf.all.forwarding=1
+          sysctl -w net.ipv4.fib_multipath_hash_policy=1
+          sysctl -w net.ipv4.conf.all.rp_filter=0
+          sysctl -w net.ipv4.conf.default.rp_filter=0
+          sysctl -w net.ipv6.conf.all.forwarding=1
+        securityContext:
+          privileged: true
+      containers:
+      - name: load-balancer
+        image: stateless-load-balancer:test
+        imagePullPolicy: IfNotPresent
+        command:
+        - /home/meridio/stateless-load-balancer
+        - run
+        - --gateway-name=test-gateway
+        - --gateway-namespace=default
+        - --log-level=debug
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi

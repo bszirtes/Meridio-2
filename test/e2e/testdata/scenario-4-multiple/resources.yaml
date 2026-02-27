@@ -1,0 +1,62 @@
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: DistributionGroup
+metadata:
+  name: web-backends
+  namespace: default
+spec:
+  type: Maglev
+  maglev:
+    maxEndpoints: 32
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: DistributionGroup
+metadata:
+  name: api-backends
+  namespace: default
+spec:
+  type: Maglev
+  maglev:
+    maxEndpoints: 64
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: L34Route
+metadata:
+  name: web-route
+  namespace: default
+spec:
+  parentRefs:
+  - name: test-gateway
+    namespace: default
+  destinationCIDRs:
+  - 20.0.0.1/32
+  protocols:
+  - TCP
+  destinationPorts:
+  - "80"
+  priority: 100
+  backendRefs:
+  - group: meridio-2.nordix.org
+    kind: DistributionGroup
+    name: web-backends
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: L34Route
+metadata:
+  name: api-route
+  namespace: default
+spec:
+  parentRefs:
+  - name: test-gateway
+    namespace: default
+  destinationCIDRs:
+  - 20.0.0.2/32
+  protocols:
+  - TCP
+  destinationPorts:
+  - "8080"
+  priority: 100
+  backendRefs:
+  - group: meridio-2.nordix.org
+    kind: DistributionGroup
+    name: api-backends
