@@ -53,7 +53,7 @@ ARG USER
 ARG UID
 ARG HOME=/home/${USER}
 
-RUN apk update && apk add iproute2 tcpdump nftables
+RUN apk update && apk add iproute2 tcpdump nftables libcap
 
 RUN addgroup -g ${UID} ${USER} \
   && adduser -D -h ${HOME} -u ${UID} -G ${USER} ${USER} \
@@ -62,6 +62,12 @@ RUN addgroup -g ${UID} ${USER} \
 WORKDIR ${HOME}
 COPY --from=builder /workspace/stateless-load-balancer .
 COPY --from=nfqlb-build /bin/nfqlb /bin/nfqlb
+
+# Set capabilities for network operations
+RUN setcap 'cap_net_admin+ep' ./stateless-load-balancer \
+  && chown root:root /bin/nfqlb && setcap 'cap_net_admin,cap_ipc_lock,cap_ipc_owner+ep' /bin/nfqlb \
+  && setcap 'cap_net_admin+ep' /usr/sbin/nft
+
 USER ${UID}:${UID}
 
 ENTRYPOINT ["./stateless-load-balancer", "run"]
