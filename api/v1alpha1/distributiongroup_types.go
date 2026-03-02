@@ -24,6 +24,8 @@ type DistributionGroupType string
 
 const (
 	DistributionGroupTypeMaglev DistributionGroupType = "Maglev"
+	// DefaultMaglevMaxEndpoints is the default capacity for Maglev hash table
+	DefaultMaglevMaxEndpoints int32 = 32
 )
 
 // ParentReference mirrors Gateway API's ParentReference
@@ -43,7 +45,8 @@ type ParentReference struct {
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Namespace is the namespace of the referent.
+	// Namespace is the namespace of the referent. When unspecified, this refers
+	// to the local namespace of the referer.
 	// +optional
 	Namespace *string `json:"namespace,omitempty"`
 }
