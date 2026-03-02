@@ -3,6 +3,7 @@ module github.com/nordix/meridio-2
 go 1.25.3
 
 require (
+	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.4
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/stretchr/testify v1.11.1

@@ -21,6 +21,7 @@ import (
 	goflag "flag"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -36,6 +37,7 @@ import (
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 	"github.com/nordix/meridio-2/internal/common/config"
+	"github.com/nordix/meridio-2/internal/controller/distributiongroup"
 	"github.com/nordix/meridio-2/internal/controller/gateway"
 	webhookv1alpha1 "github.com/nordix/meridio-2/internal/webhook/v1alpha1"
 )
@@ -126,6 +128,9 @@ func runManager(cfg *config.ManagerConfig) error {
 		cacheOptions.ByObject = map[client.Object]cache.ByObject{
 			&gatewayapiv1.GatewayClass{}: {},
 		}
+		if cfg.EnableTopologyHints {
+			cacheOptions.ByObject[&corev1.Node{}] = cache.ByObject{}
+		}
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -155,6 +160,16 @@ func runManager(cfg *config.ManagerConfig) error {
 		ControllerName: cfg.ControllerName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Gateway")
+		return err
+	}
+
+	if err = (&distributiongroup.DistributionGroupReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		ControllerName: cfg.ControllerName,
+		Namespace:      cfg.Namespace,
+	}).SetupWithManager(mgr, cfg.EnableTopologyHints); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DistributionGroup")
 		return err
 	}
 	// +kubebuilder:scaffold:builder

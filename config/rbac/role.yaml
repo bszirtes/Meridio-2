@@ -5,6 +5,27 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - nodes
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - gateway.networking.k8s.io
   resources:
   - gateways
@@ -30,3 +51,32 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - meridio-2.nordix.org
+  resources:
+  - distributiongroups
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - meridio-2.nordix.org
+  resources:
+  - distributiongroups/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - meridio-2.nordix.org
+  resources:
+  - gatewayconfigurations
+  - l34routes
+  verbs:
+  - get
+  - list
+  - watch

@@ -109,7 +109,9 @@ spec:
                       minLength: 1
                       type: string
                     namespace:
-                      description: Namespace is the namespace of the referent.
+                      description: |-
+                        Namespace is the namespace of the referent. When unspecified, this refers
+                        to the local namespace of the referer.
                       type: string
                   required:
                   - name
