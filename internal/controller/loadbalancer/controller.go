@@ -18,6 +18,7 @@ package loadbalancer
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync"
 
@@ -186,10 +187,16 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 		return err
 	}
 
+	// Start the instance to create shared memory
+	if err := instance.Start(); err != nil {
+		logr.Error(err, fmt.Sprintf("failed to start NFQLB instance, distGroup: %s", distGroup.Name))
+		return err
+	}
+
 	c.instances[distGroup.Name] = instance
 	c.targets[distGroup.Name] = make(map[int][]string)
 
-	logr.Info("Created NFQLB instance", "distGroup", distGroup.Name, "M", m, "N", n)
+	logr.Info(fmt.Sprintf("Created NFQLB instance, distGroup: %s, M: %d, N: %d", distGroup.Name, m, n))
 	return nil
 }
 
