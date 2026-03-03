@@ -46,23 +46,23 @@ func TestLoadBalancerController(t *testing.T) {
 // Mock NFQLB instance
 type mockNFQLBInstance struct {
 	name               string
-	activatedTargets   map[int]bool
-	deactivatedTargets map[int]bool
+	activatedTargets   map[int]int // map[fwmark]index for verification
+	deactivatedIndexes map[int]bool
 }
 
-func (m *mockNFQLBInstance) Activate(index int, identifier int) error {
+func (m *mockNFQLBInstance) Activate(index int, fwmark int) error {
 	if m.activatedTargets == nil {
-		m.activatedTargets = make(map[int]bool)
+		m.activatedTargets = make(map[int]int)
 	}
-	m.activatedTargets[identifier] = true
+	m.activatedTargets[fwmark] = index
 	return nil
 }
 
 func (m *mockNFQLBInstance) Deactivate(index int) error {
-	if m.deactivatedTargets == nil {
-		m.deactivatedTargets = make(map[int]bool)
+	if m.deactivatedIndexes == nil {
+		m.deactivatedIndexes = make(map[int]bool)
 	}
-	m.deactivatedTargets[index] = true
+	m.deactivatedIndexes[index] = true
 	return nil
 }
 
@@ -309,9 +309,11 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("should activate new targets with identifier from Zone field", func() {
+		It("should activate new targets with correct index and fwmark", func() {
 			ready := true
-			zone := "5000"
+			// Zone field contains identifier (0-based)
+			zone0 := "0"
+			zone1 := "1"
 			endpointSlice := &discoveryv1.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-eps",
@@ -326,7 +328,14 @@ var _ = Describe("LoadBalancer Controller", func() {
 						Conditions: discoveryv1.EndpointConditions{
 							Ready: &ready,
 						},
-						Zone: &zone,
+						Zone: &zone0,
+					},
+					{
+						Addresses: []string{"10.0.0.2"},
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &ready,
+						},
+						Zone: &zone1,
 					},
 				},
 			}
@@ -340,9 +349,14 @@ var _ = Describe("LoadBalancer Controller", func() {
 			err := controller.reconcileTargets(ctx, distGroup)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify target was activated
+			// Verify targets were activated with correct fwmark
+			// identifier=0 -> index=1, fwmark=5000
+			// identifier=1 -> index=2, fwmark=5001
 			mockInstance := mockFactory.instances[distGroup.Name]
-			Expect(mockInstance.activatedTargets).To(HaveKey(5000))
+			Expect(mockInstance.activatedTargets).To(HaveKey(5000))  // fwmark = 0 + 5000
+			Expect(mockInstance.activatedTargets[5000]).To(Equal(1)) // index = 0 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(5001))  // fwmark = 1 + 5000
+			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
 		})
 
 		It("should skip endpoints without Zone field", func() {
@@ -382,7 +396,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 
 		It("should skip non-ready endpoints", func() {
 			ready := false
-			zone := "5000"
+			zone := "0"
 			endpointSlice := &discoveryv1.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-eps",
@@ -416,11 +430,11 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(mockInstance.activatedTargets).To(BeEmpty())
 		})
 
-		It("should deactivate removed targets", func() {
-			// Setup: activate a target first
+		It("should deactivate removed targets with correct index", func() {
+			// Setup: activate a target first (identifier=0)
 			controller.targets = map[string]map[int][]string{
 				distGroup.Name: {
-					5000: {"10.0.0.1"},
+					0: {"10.0.0.1"},
 				},
 			}
 
@@ -433,9 +447,9 @@ var _ = Describe("LoadBalancer Controller", func() {
 			err := controller.reconcileTargets(ctx, distGroup)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify target was deactivated
+			// Verify target was deactivated with index=1 (identifier 0 + 1)
 			mockInstance := mockFactory.instances[distGroup.Name]
-			Expect(mockInstance.deactivatedTargets).To(HaveKey(5000))
+			Expect(mockInstance.deactivatedIndexes).To(HaveKey(1))
 		})
 	})
 
