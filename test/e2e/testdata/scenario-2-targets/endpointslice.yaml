@@ -12,17 +12,17 @@ endpoints:
   - 10.244.1.10
   conditions:
     ready: true
-  zone: "5000"
+  zone: "0"
 - addresses:
   - 10.244.1.11
   conditions:
     ready: true
-  zone: "5001"
+  zone: "1"
 - addresses:
   - 10.244.1.12
   conditions:
     ready: true
-  zone: "5002"
+  zone: "2"
 ports:
 - port: 80
   protocol: TCP
