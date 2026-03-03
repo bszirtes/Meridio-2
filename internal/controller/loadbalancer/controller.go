@@ -68,6 +68,8 @@ type Controller struct {
 	targets   map[string]map[int][]string          // key: DistributionGroup name -> identifier -> IPs
 }
 
+const identifierOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
+
 func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logr := log.FromContext(ctx)
 
@@ -251,7 +253,7 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	// Deactivate removed targets
 	for identifier := range currentTargets {
 		if _, exists := newTargets[identifier]; !exists {
-			if err := instance.Deactivate(identifier); err != nil {
+			if err := instance.Deactivate(identifier + 1); err != nil {
 				logr.Error(err, "Failed to deactivate target", "identifier", identifier)
 			} else {
 				logr.Info("Deactivated target", "distGroup", distGroup.Name, "identifier", identifier)
@@ -262,7 +264,9 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	// Activate new targets
 	for identifier, ips := range newTargets {
 		if _, exists := currentTargets[identifier]; !exists {
-			if err := instance.Activate(identifier, identifier); err != nil {
+			// NFQLB expects 1-based index, so add 1 to 0-based identifier
+			// Fwmark is identifier + offset for routing
+			if err := instance.Activate(identifier+1, identifier+identifierOffset); err != nil {
 				logr.Error(err, "Failed to activate target", "identifier", identifier, "ips", ips)
 			} else {
 				logr.Info("Activated target", "distGroup", distGroup.Name, "identifier", identifier, "ips", ips)
