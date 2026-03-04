@@ -44,3 +44,15 @@ func bindBool(fs *pflag.FlagSet, flagName, envName string, target *bool) {
 		}
 	}
 }
+
+// bindInt binds an environment variable to an integer configuration field
+// Only applies if the corresponding flag was not explicitly set
+func bindInt(fs *pflag.FlagSet, flagName, envName string, target *int) {
+	if !fs.Changed(flagName) {
+		if val := os.Getenv(envName); val != "" {
+			if parsed, err := strconv.Atoi(val); err == nil {
+				*target = parsed
+			}
+		}
+	}
+}
