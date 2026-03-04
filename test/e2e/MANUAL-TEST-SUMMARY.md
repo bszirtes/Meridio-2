@@ -56,7 +56,7 @@ Successfully deployed and tested the stateless-load-balancer component in a kind
   - Gateway: test-gateway
   - DistributionGroup: web-backends (Maglev M=3200, N=32)
   - L34Route: web-route (VIP 20.0.0.1/32, port 80, TCP)
-  - EndpointSlice: 3 endpoints with Zone identifiers 5000, 5001, 5002
+  - EndpointSlice: 3 endpoints with Maglev Zone identifiers (maglev:0, maglev:1, maglev:2)
 
 ## Files Updated
 

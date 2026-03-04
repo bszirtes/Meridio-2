@@ -57,17 +57,21 @@ metadata:
   namespace: default
   labels:
     kubernetes.io/service-name: my-backends  # Must match DistributionGroup name
+    discovery.k8s.io/managed-by: distributiongroup-controller
+    meridio-2.nordix.org/distributiongroup: my-backends
 addressType: IPv4
 endpoints:
 - addresses:
   - 10.244.1.10
   conditions:
     ready: true
-  zone: "5000"  # Identifier for NFQLB target
+  zone: "maglev:0"  # Maglev identifier (format: "maglev:N" where N=0-31)
 ports:
 - port: 80
   protocol: TCP
 ```
+
+**Note**: In production, EndpointSlices are automatically created by the DistributionGroup controller. This example shows the expected format for manual testing.
 
 ## Gateway API Resources
 
@@ -126,12 +130,14 @@ no matches for kind "DistributionGroup" in version "meridio.nordix.org/v1alpha1"
 
 ❌ Error: Targets not activating
 
-✅ Fix: Add `zone` field to EndpointSlice endpoints:
+✅ Fix: Add `zone` field to EndpointSlice endpoints with Maglev format:
 ```yaml
 endpoints:
 - addresses: [10.0.0.1]
-  zone: "5000"  # Required for NFQLB
+  zone: "maglev:0"  # Required for NFQLB (format: "maglev:N" where N=0-31)
 ```
+
+**Note**: The DistributionGroup controller automatically creates EndpointSlices with this format. Manual EndpointSlices should follow the same convention.
 
 ### Wrong Label
 

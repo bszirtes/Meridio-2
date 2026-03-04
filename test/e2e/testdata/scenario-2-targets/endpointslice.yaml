@@ -6,23 +6,25 @@ metadata:
   namespace: default
   labels:
     kubernetes.io/service-name: web-backends
+    discovery.k8s.io/managed-by: distributiongroup-controller
+    meridio-2.nordix.org/distributiongroup: web-backends
 addressType: IPv4
 endpoints:
 - addresses:
   - 10.244.1.10
   conditions:
     ready: true
-  zone: "0"
+  zone: "maglev:0"
 - addresses:
   - 10.244.1.11
   conditions:
     ready: true
-  zone: "1"
+  zone: "maglev:1"
 - addresses:
   - 10.244.1.12
   conditions:
     ready: true
-  zone: "2"
+  zone: "maglev:2"
 ports:
 - port: 80
   protocol: TCP

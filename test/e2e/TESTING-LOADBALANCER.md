@@ -91,7 +91,9 @@ kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
 
 ### Scenario 2: Target Activation
 
-**Objective**: Verify that EndpointSlices with identifiers activate targets in NFQLB.
+**Objective**: Verify that EndpointSlices with Maglev identifiers activate targets in NFQLB.
+
+**Note**: EndpointSlices are created by the DistributionGroup controller with Zone field format `"maglev:N"` where N is the Maglev identifier (0-31 by default).
 
 ```bash
 # Apply test resources
@@ -99,15 +101,15 @@ kubectl apply -f test/e2e/testdata/scenario-2-targets/
 
 # Expected resources:
 # - DistributionGroup
-# - EndpointSlice with 3 endpoints (Zone field = identifier)
+# - EndpointSlice with 3 endpoints (Zone field = "maglev:N")
 ```
 
 **Verification**:
 
 ```bash
-# 1. Check EndpointSlice has identifiers
+# 1. Check EndpointSlice has Maglev identifiers
 kubectl get endpointslice <name> -o jsonpath='{.endpoints[*].zone}'
-# Expected: 5000 5001 5002
+# Expected: maglev:0 maglev:1 maglev:2
 
 # 2. Verify targets are activated in NFQLB
 kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
@@ -115,14 +117,14 @@ kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
 
 # Expected output:
 # Targets: 3
-# 5000: 10.244.1.10
-# 5001: 10.244.1.11
-# 5002: 10.244.1.12
+# 0: 10.244.1.10
+# 1: 10.244.1.11
+# 2: 10.244.1.12
 ```
 
 **Success Criteria**:
 - ✅ 3 targets activated in NFQLB
-- ✅ Identifiers match EndpointSlice Zone values
+- ✅ Identifiers (0, 1, 2) extracted from Zone values ("maglev:0", "maglev:1", "maglev:2")
 - ✅ IP addresses match EndpointSlice addresses
 
 ### Scenario 3: Target Deactivation
