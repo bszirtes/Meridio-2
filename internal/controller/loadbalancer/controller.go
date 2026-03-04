@@ -241,7 +241,14 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 				logr.V(1).Info("Endpoint missing identifier (Zone field)", "addresses", endpoint.Addresses)
 				continue
 			}
-			identifier, err := strconv.Atoi(*endpoint.Zone)
+			
+			// Parse Zone field - support both "maglev:N" and plain "N" formats
+			zoneStr := *endpoint.Zone
+			if len(zoneStr) > 7 && zoneStr[:7] == "maglev:" {
+				zoneStr = zoneStr[7:] // Strip "maglev:" prefix
+			}
+			
+			identifier, err := strconv.Atoi(zoneStr)
 			if err != nil {
 				logr.Error(err, "Invalid identifier in Zone field", "zone", *endpoint.Zone)
 				continue

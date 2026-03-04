@@ -451,6 +451,53 @@ var _ = Describe("LoadBalancer Controller", func() {
 			mockInstance := mockFactory.instances[distGroup.Name]
 			Expect(mockInstance.deactivatedIndexes).To(HaveKey(1))
 		})
+
+		It("should parse Zone field with maglev: prefix", func() {
+			ready := true
+			zone0 := "maglev:0"
+			zone1 := "maglev:1"
+			endpointSlice := &discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-eps",
+					Namespace: namespace,
+					Labels: map[string]string{
+						"kubernetes.io/service-name": distGroup.Name,
+					},
+				},
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.0.0.1"},
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &ready,
+						},
+						Zone: &zone0,
+					},
+					{
+						Addresses: []string{"10.0.0.2"},
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &ready,
+						},
+						Zone: &zone1,
+					},
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(endpointSlice).
+				Build()
+			controller.Client = fakeClient
+
+			err := controller.reconcileTargets(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify targets were activated with correct identifiers
+			mockInstance := mockFactory.instances[distGroup.Name]
+			Expect(mockInstance.activatedTargets).To(HaveKey(5000)) // fwmark = 0 + 5000
+			Expect(mockInstance.activatedTargets[5000]).To(Equal(1)) // index = 0 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(5001)) // fwmark = 1 + 5000
+			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
+		})
 	})
 
 	Describe("endpointSliceEnqueue", func() {
