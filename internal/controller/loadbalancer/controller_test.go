@@ -319,7 +319,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"kubernetes.io/service-name": distGroup.Name,
+						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -366,7 +366,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"kubernetes.io/service-name": distGroup.Name,
+						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -402,7 +402,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"kubernetes.io/service-name": distGroup.Name,
+						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -461,7 +461,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"kubernetes.io/service-name": distGroup.Name,
+						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -507,7 +507,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"kubernetes.io/service-name": "test-distgroup",
+						"meridio-2.nordix.org/distributiongroup": "test-distgroup",
 					},
 				},
 			}
@@ -537,7 +537,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: "other-namespace",
 					Labels: map[string]string{
-						"kubernetes.io/service-name": "test-distgroup",
+						"meridio-2.nordix.org/distributiongroup": "test-distgroup",
 					},
 				},
 			}

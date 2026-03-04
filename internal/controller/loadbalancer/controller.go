@@ -218,7 +218,7 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	if err := c.List(ctx, endpointSliceList,
 		client.InNamespace(c.GatewayNamespace),
 		client.MatchingLabels{
-			"kubernetes.io/service-name": distGroup.Name,
+			"meridio-2.nordix.org/distributiongroup": distGroup.Name,
 		}); err != nil {
 		return err
 	}
@@ -298,8 +298,8 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 
 // endpointSliceEnqueue maps EndpointSlice events to DistributionGroup reconcile requests
 func (c *Controller) endpointSliceEnqueue(ctx context.Context, obj client.Object) []ctrl.Request {
-	// EndpointSlices are labeled with kubernetes.io/service-name = DistributionGroup name
-	distGroupName := obj.GetLabels()["kubernetes.io/service-name"]
+	// EndpointSlices are labeled with meridio-2.nordix.org/distributiongroup = DistributionGroup name
+	distGroupName := obj.GetLabels()["meridio-2.nordix.org/distributiongroup"]
 	if distGroupName == "" {
 		return nil
 	}
