@@ -56,9 +56,8 @@ metadata:
   name: my-backends-endpoints
   namespace: default
   labels:
-    kubernetes.io/service-name: my-backends  # Must match DistributionGroup name
     discovery.k8s.io/managed-by: distributiongroup-controller
-    meridio-2.nordix.org/distributiongroup: my-backends
+    meridio-2.nordix.org/distributiongroup: my-backends  # Must match DistributionGroup name
 addressType: IPv4
 endpoints:
 - addresses:
@@ -147,5 +146,5 @@ endpoints:
 ```yaml
 metadata:
   labels:
-    kubernetes.io/service-name: <distgroup-name>
+    meridio-2.nordix.org/distributiongroup: <distgroup-name>
 ```

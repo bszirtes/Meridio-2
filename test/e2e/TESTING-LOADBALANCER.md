@@ -359,7 +359,7 @@ kubectl logs -n meridio-system <lb-pod> -c stateless-load-balancer --previous
 **Check**:
 1. EndpointSlice has `Zone` field set
 2. EndpointSlice has `Conditions.Ready = true`
-3. EndpointSlice labeled with `kubernetes.io/service-name: <distgroup-name>`
+3. EndpointSlice labeled with `meridio-2.nordix.org/distributiongroup: <distgroup-name>`
 
 **Debug**:
 ```bash
