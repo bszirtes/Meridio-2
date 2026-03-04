@@ -29,6 +29,10 @@ const (
 	// Matches Kubernetes default (100 endpoints per slice)
 	maxEndpointsPerSlice = 100
 
+	// maglevIDPrefix is the prefix for Maglev IDs stored in EndpointSlice zone field
+	// Example: "maglev:5" means Maglev ID 5
+	maglevIDPrefix = "maglev:"
+
 	// Kubernetes resource kinds
 	kindPod                  = "Pod"
 	kindGatewayConfiguration = "GatewayConfiguration"

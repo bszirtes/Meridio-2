@@ -69,10 +69,10 @@ func extractMaglevAssignments(slices []discoveryv1.EndpointSlice) map[string]int
 			if endpoint.TargetRef == nil || endpoint.TargetRef.Kind != kindPod {
 				continue
 			}
-			if endpoint.Zone == nil || !strings.HasPrefix(*endpoint.Zone, "maglev:") {
+			if endpoint.Zone == nil || !strings.HasPrefix(*endpoint.Zone, maglevIDPrefix) {
 				continue
 			}
-			idStr := strings.TrimPrefix(*endpoint.Zone, "maglev:")
+			idStr := strings.TrimPrefix(*endpoint.Zone, maglevIDPrefix)
 			if id, err := strconv.ParseInt(idStr, 10, 32); err == nil {
 				assignments[string(endpoint.TargetRef.UID)] = int32(id)
 			}
