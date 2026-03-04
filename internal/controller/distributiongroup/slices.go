@@ -262,7 +262,7 @@ func createSlicesForNetwork(dg *meridio2v1alpha1.DistributionGroup, podsWithIP [
 		// Set zone field for Maglev
 		if podToID != nil {
 			if id, exists := podToID[string(pwip.pod.UID)]; exists {
-				zone := "maglev:" + strconv.FormatInt(int64(id), 10)
+				zone := maglevIDPrefix + strconv.FormatInt(int64(id), 10)
 				endpoint.Zone = &zone
 			}
 		}

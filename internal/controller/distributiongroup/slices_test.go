@@ -69,7 +69,9 @@ func TestCreateSlicesForNetwork_MaglevCapacityEnforcement(t *testing.T) {
 			if ep.Zone == nil {
 				t.Errorf("Endpoint %s has no zone (should be excluded)", ep.TargetRef.UID)
 			}
-			if ep.Zone != nil && (*ep.Zone != "maglev:0" && *ep.Zone != "maglev:1") {
+			expectedZone1 := maglevIDPrefix + "0"
+			expectedZone2 := maglevIDPrefix + "1"
+			if ep.Zone != nil && (*ep.Zone != expectedZone1 && *ep.Zone != expectedZone2) {
 				t.Errorf("Endpoint has invalid zone: %s", *ep.Zone)
 			}
 		}
