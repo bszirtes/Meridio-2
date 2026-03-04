@@ -391,6 +391,7 @@ func (c *Controller) convertL34RouteToFlow(route *meridio2v1alpha1.L34Route) *ns
 		Name:                  route.Name,
 		Priority:              route.Spec.Priority,
 		DestinationPortRanges: route.Spec.DestinationPorts,
+		ByteMatches:           route.Spec.ByteMatches,
 	}
 
 	// Convert protocols
