@@ -48,6 +48,8 @@ type mockNFQLBInstance struct {
 	name               string
 	activatedTargets   map[int]int // map[fwmark]index for verification
 	deactivatedIndexes map[int]bool
+	flows              map[string]*nspAPI.Flow // map[flow-name]flow
+	deletedFlows       map[string]bool
 }
 
 func (m *mockNFQLBInstance) Activate(index int, fwmark int) error {
@@ -66,11 +68,26 @@ func (m *mockNFQLBInstance) Deactivate(index int) error {
 	return nil
 }
 
-func (m *mockNFQLBInstance) Start() error                       { return nil }
-func (m *mockNFQLBInstance) Delete() error                      { return nil }
-func (m *mockNFQLBInstance) SetFlow(flow *nspAPI.Flow) error    { return nil }
-func (m *mockNFQLBInstance) DeleteFlow(flow *nspAPI.Flow) error { return nil }
-func (m *mockNFQLBInstance) GetName() string                    { return m.name }
+func (m *mockNFQLBInstance) Start() error  { return nil }
+func (m *mockNFQLBInstance) Delete() error { return nil }
+
+func (m *mockNFQLBInstance) SetFlow(flow *nspAPI.Flow) error {
+	if m.flows == nil {
+		m.flows = make(map[string]*nspAPI.Flow)
+	}
+	m.flows[flow.GetName()] = flow
+	return nil
+}
+
+func (m *mockNFQLBInstance) DeleteFlow(flow *nspAPI.Flow) error {
+	if m.deletedFlows == nil {
+		m.deletedFlows = make(map[string]bool)
+	}
+	m.deletedFlows[flow.GetName()] = true
+	return nil
+}
+
+func (m *mockNFQLBInstance) GetName() string { return m.name }
 
 // Mock NFQLB factory
 type mockNFQLBFactory struct {
@@ -497,6 +514,259 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(mockInstance.activatedTargets[5000]).To(Equal(1)) // index = 0 + 1
 			Expect(mockInstance.activatedTargets).To(HaveKey(5001))  // fwmark = 1 + 5000
 			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
+		})
+	})
+
+	Describe("reconcileFlows", func() {
+		var distGroup *meridio2v1alpha1.DistributionGroup
+
+		BeforeEach(func() {
+			distGroup = &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-distgroup",
+					Namespace: namespace,
+				},
+			}
+
+			// Create NFQLB instance first
+			err := controller.reconcileNFQLBInstance(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should configure flow from L34Route", func() {
+			group := meridio2v1alpha1.GroupVersion.Group
+			kind := kindDistributionGroup
+			l34route := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-route",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{
+							Name: gatewayv1.ObjectName(gatewayName),
+						},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  gatewayv1.ObjectName(distGroup.Name),
+							},
+						},
+					},
+					DestinationCIDRs: []string{"20.0.0.1/32"},
+					Protocols:        []meridio2v1alpha1.TransportProtocol{meridio2v1alpha1.TCP},
+					DestinationPorts: []string{"80"},
+					Priority:         100,
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(l34route).
+				Build()
+			controller.Client = fakeClient
+
+			err := controller.reconcileFlows(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify flow was configured
+			mockInstance := mockFactory.instances[distGroup.Name]
+			Expect(mockInstance.flows).To(HaveLen(1))
+
+			// Check flow details
+			var flow *nspAPI.Flow
+			for _, f := range mockInstance.flows {
+				flow = f
+				break
+			}
+			Expect(flow).ToNot(BeNil())
+			Expect(flow.GetName()).To(Equal("test-route"))
+			Expect(flow.GetPriority()).To(Equal(int32(100)))
+			Expect(flow.GetProtocols()).To(ConsistOf("TCP"))
+			Expect(flow.GetVips()).To(HaveLen(1))
+			Expect(flow.GetVips()[0].GetAddress()).To(Equal("20.0.0.1/32"))
+			Expect(flow.GetDestinationPortRanges()).To(ConsistOf("80"))
+		})
+
+		It("should handle multiple L34Routes for same DistributionGroup", func() {
+			group := meridio2v1alpha1.GroupVersion.Group
+			kind := kindDistributionGroup
+
+			l34route1 := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "route-1",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: gatewayv1.ObjectName(gatewayName)},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  gatewayv1.ObjectName(distGroup.Name),
+							},
+						},
+					},
+					DestinationCIDRs: []string{"20.0.0.1/32"},
+					Protocols:        []meridio2v1alpha1.TransportProtocol{meridio2v1alpha1.TCP},
+					DestinationPorts: []string{"80"},
+					Priority:         100,
+				},
+			}
+
+			l34route2 := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "route-2",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: gatewayv1.ObjectName(gatewayName)},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  gatewayv1.ObjectName(distGroup.Name),
+							},
+						},
+					},
+					DestinationCIDRs: []string{"20.0.0.2/32"},
+					Protocols:        []meridio2v1alpha1.TransportProtocol{meridio2v1alpha1.UDP},
+					DestinationPorts: []string{"53"},
+					Priority:         200,
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(l34route1, l34route2).
+				Build()
+			controller.Client = fakeClient
+
+			err := controller.reconcileFlows(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify both flows configured
+			mockInstance := mockFactory.instances[distGroup.Name]
+			Expect(mockInstance.flows).To(HaveLen(2))
+			Expect(mockInstance.flows).To(HaveKey("route-1"))
+			Expect(mockInstance.flows).To(HaveKey("route-2"))
+		})
+
+		It("should skip L34Routes for different Gateway", func() {
+			group := meridio2v1alpha1.GroupVersion.Group
+			kind := kindDistributionGroup
+
+			l34route := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "other-route",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: gatewayv1.ObjectName("other-gateway")},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  gatewayv1.ObjectName(distGroup.Name),
+							},
+						},
+					},
+					DestinationCIDRs: []string{"20.0.0.1/32"},
+					Protocols:        []meridio2v1alpha1.TransportProtocol{meridio2v1alpha1.TCP},
+					Priority:         100,
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(l34route).
+				Build()
+			controller.Client = fakeClient
+
+			err := controller.reconcileFlows(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+
+			// No flows should be configured
+			mockInstance := mockFactory.instances[distGroup.Name]
+			Expect(mockInstance.flows).To(BeEmpty())
+		})
+
+		It("should skip L34Routes for different DistributionGroup", func() {
+			group := meridio2v1alpha1.GroupVersion.Group
+			kind := kindDistributionGroup
+
+			l34route := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "other-route",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: gatewayv1.ObjectName(gatewayName)},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  "other-distgroup",
+							},
+						},
+					},
+					DestinationCIDRs: []string{"20.0.0.1/32"},
+					Protocols:        []meridio2v1alpha1.TransportProtocol{meridio2v1alpha1.TCP},
+					Priority:         100,
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(l34route).
+				Build()
+			controller.Client = fakeClient
+
+			err := controller.reconcileFlows(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+
+			// No flows should be configured
+			mockInstance := mockFactory.instances[distGroup.Name]
+			Expect(mockInstance.flows).To(BeEmpty())
+		})
+
+		It("should delete flows when L34Route is removed", func() {
+			// Setup: configure a flow first
+			controller.flows = map[string]map[string]*meridio2v1alpha1.L34Route{
+				distGroup.Name: {
+					"old-route": &meridio2v1alpha1.L34Route{
+						ObjectMeta: metav1.ObjectMeta{Name: "old-route"},
+					},
+				},
+			}
+
+			// No L34Routes in cluster (removed)
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				Build()
+			controller.Client = fakeClient
+
+			err := controller.reconcileFlows(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify flow was deleted
+			mockInstance := mockFactory.instances[distGroup.Name]
+			Expect(mockInstance.deletedFlows).To(HaveKey("old-route"))
 		})
 	})
 

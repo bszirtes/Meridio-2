@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/google/nftables"
+	nspAPI "github.com/nordix/meridio/api/nsp/v1"
 	"github.com/nordix/meridio/pkg/loadbalancer/types"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -64,10 +65,12 @@ type Controller struct {
 	NFTChain         *nftables.Chain
 
 	mu        sync.Mutex
-	instances map[string]types.NFQueueLoadBalancer // key: DistributionGroup name
-	targets   map[string]map[int][]string          // key: DistributionGroup name -> identifier -> IPs
+	instances map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
+	targets   map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
+	flows     map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
 }
 
+const defaultMaxEndpoints = 32
 const identifierOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
 
 func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -112,7 +115,12 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	// TODO: Reconcile flows from L34Routes
+	// Reconcile flows from L34Routes
+	if err := c.reconcileFlows(ctx, distGroup); err != nil {
+		logr.Error(err, "Failed to reconcile flows")
+		return ctrl.Result{}, err
+	}
+
 	// TODO: Update nftables VIP rules
 	// TODO: Write readiness file
 
@@ -177,7 +185,7 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 	}
 
 	// Get Maglev parameters
-	n := int32(32) // default MaxEndpoints
+	n := int32(defaultMaxEndpoints)
 	if distGroup.Spec.Maglev != nil {
 		n = distGroup.Spec.Maglev.MaxEndpoints
 	}
@@ -286,6 +294,120 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 
 	logr.Info("Reconciled targets", "distGroup", distGroup.Name, "count", len(newTargets))
 	return nil
+}
+
+func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) error {
+	logr := log.FromContext(ctx)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	instance, exists := c.instances[distGroup.Name]
+	if !exists {
+		return nil
+	}
+
+	// Initialize flows map if needed
+	if c.flows == nil {
+		c.flows = make(map[string]map[string]*meridio2v1alpha1.L34Route)
+	}
+	if c.flows[distGroup.Name] == nil {
+		c.flows[distGroup.Name] = make(map[string]*meridio2v1alpha1.L34Route)
+	}
+
+	// Get L34Routes for this Gateway and DistributionGroup
+	l34routeList := &meridio2v1alpha1.L34RouteList{}
+	if err := c.List(ctx, l34routeList, client.InNamespace(c.GatewayNamespace)); err != nil {
+		return err
+	}
+
+	// Build new flows map
+	newFlows := make(map[string]*meridio2v1alpha1.L34Route)
+	for i := range l34routeList.Items {
+		route := &l34routeList.Items[i]
+
+		// Check if route references this Gateway
+		referencesGateway := false
+		for _, parentRef := range route.Spec.ParentRefs {
+			if string(parentRef.Name) == c.GatewayName &&
+				(parentRef.Namespace == nil || string(*parentRef.Namespace) == c.GatewayNamespace) {
+				referencesGateway = true
+				break
+			}
+		}
+		if !referencesGateway {
+			continue
+		}
+
+		// Check if route references this DistributionGroup
+		referencesDistGroup := false
+		for _, backendRef := range route.Spec.BackendRefs {
+			if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
+				backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" &&
+				string(backendRef.Name) == distGroup.Name {
+				referencesDistGroup = true
+				break
+			}
+		}
+		if !referencesDistGroup {
+			continue
+		}
+
+		newFlows[route.Name] = route
+	}
+
+	// Delete removed flows
+	currentFlows := c.flows[distGroup.Name]
+	for flowName := range currentFlows {
+		if _, exists := newFlows[flowName]; !exists {
+			flow := &nspAPI.Flow{Name: flowName}
+			if err := instance.DeleteFlow(flow); err != nil {
+				logr.Error(err, "Failed to delete flow", "flow", flowName)
+			} else {
+				logr.Info("Deleted flow", "distGroup", distGroup.Name, "flow", flowName)
+			}
+		}
+	}
+
+	// Add/update flows
+	for flowName, route := range newFlows {
+		flow := c.convertL34RouteToFlow(route)
+		if err := instance.SetFlow(flow); err != nil {
+			logr.Error(err, "Failed to set flow", "flow", flowName)
+		} else {
+			logr.Info("Configured flow", "distGroup", distGroup.Name, "flow", flowName)
+		}
+	}
+
+	// Update tracked flows
+	c.flows[distGroup.Name] = newFlows
+
+	logr.Info("Reconciled flows", "distGroup", distGroup.Name, "count", len(newFlows))
+	return nil
+}
+
+func (c *Controller) convertL34RouteToFlow(route *meridio2v1alpha1.L34Route) *nspAPI.Flow {
+	flow := &nspAPI.Flow{
+		Name:                  route.Name,
+		Priority:              route.Spec.Priority,
+		DestinationPortRanges: route.Spec.DestinationPorts,
+	}
+
+	// Convert protocols
+	protocols := make([]string, len(route.Spec.Protocols))
+	for i, p := range route.Spec.Protocols {
+		protocols[i] = string(p)
+	}
+	flow.Protocols = protocols
+
+	// Convert VIPs
+	vips := make([]*nspAPI.Vip, len(route.Spec.DestinationCIDRs))
+	for i, cidr := range route.Spec.DestinationCIDRs {
+		vips[i] = &nspAPI.Vip{Address: cidr}
+	}
+	flow.Vips = vips
+
+	return flow
 }
 
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
