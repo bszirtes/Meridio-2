@@ -71,6 +71,8 @@ type Controller struct {
 }
 
 const defaultMaxEndpoints = 32
+const kindDistributionGroup = "DistributionGroup"
+
 const identifierOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
 
 func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -155,7 +157,7 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 		// Check if route references this DistributionGroup
 		for _, backendRef := range route.Spec.BackendRefs {
 			if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
-				backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" &&
+				backendRef.Kind != nil && string(*backendRef.Kind) == kindDistributionGroup &&
 				string(backendRef.Name) == distGroup.Name {
 				return true
 			}
@@ -390,6 +392,8 @@ func (c *Controller) convertL34RouteToFlow(route *meridio2v1alpha1.L34Route) *ns
 	flow := &nspAPI.Flow{
 		Name:                  route.Name,
 		Priority:              route.Spec.Priority,
+		SourceSubnets:         route.Spec.SourceCIDRs,
+		SourcePortRanges:      route.Spec.SourcePorts,
 		DestinationPortRanges: route.Spec.DestinationPorts,
 		ByteMatches:           route.Spec.ByteMatches,
 	}
@@ -415,6 +419,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&meridio2v1alpha1.DistributionGroup{}).
 		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(c.endpointSliceEnqueue)).
+		Watches(&meridio2v1alpha1.L34Route{}, handler.EnqueueRequestsFromMapFunc(c.l34RouteEnqueue)).
 		Named("loadbalancer").
 		Complete(c)
 }
@@ -438,4 +443,41 @@ func (c *Controller) endpointSliceEnqueue(ctx context.Context, obj client.Object
 			Namespace: obj.GetNamespace(),
 		},
 	}}
+}
+
+// l34RouteEnqueue maps L34Route events to DistributionGroup reconcile requests
+func (c *Controller) l34RouteEnqueue(ctx context.Context, obj client.Object) []ctrl.Request {
+	route, ok := obj.(*meridio2v1alpha1.L34Route)
+	if !ok {
+		return nil
+	}
+
+	// Check if route references this Gateway
+	referencesGateway := false
+	for _, parentRef := range route.Spec.ParentRefs {
+		if string(parentRef.Name) == c.GatewayName &&
+			(parentRef.Namespace == nil || string(*parentRef.Namespace) == c.GatewayNamespace) {
+			referencesGateway = true
+			break
+		}
+	}
+	if !referencesGateway {
+		return nil
+	}
+
+	// Enqueue all DistributionGroups referenced by this route
+	var requests []ctrl.Request
+	for _, backendRef := range route.Spec.BackendRefs {
+		if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
+			backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" {
+			requests = append(requests, ctrl.Request{
+				NamespacedName: client.ObjectKey{
+					Name:      string(backendRef.Name),
+					Namespace: c.GatewayNamespace,
+				},
+			})
+		}
+	}
+
+	return requests
 }

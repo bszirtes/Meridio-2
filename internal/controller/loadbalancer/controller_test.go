@@ -34,10 +34,6 @@ import (
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 )
 
-const (
-	kindDistributionGroup = "DistributionGroup"
-)
-
 func TestLoadBalancerController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "LoadBalancer Controller Suite")
@@ -814,6 +810,133 @@ var _ = Describe("LoadBalancer Controller", func() {
 
 			requests := controller.endpointSliceEnqueue(ctx, endpointSlice)
 			Expect(requests).To(BeNil())
+		})
+	})
+
+	Describe("l34RouteEnqueue", func() {
+		It("should map L34Route to DistributionGroup", func() {
+			group := meridio2v1alpha1.GroupVersion.Group
+			kind := kindDistributionGroup
+
+			l34route := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-route",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: gatewayv1.ObjectName(gatewayName)},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  "test-distgroup",
+							},
+						},
+					},
+				},
+			}
+
+			requests := controller.l34RouteEnqueue(ctx, l34route)
+			Expect(requests).To(HaveLen(1))
+			Expect(requests[0].Name).To(Equal("test-distgroup"))
+			Expect(requests[0].Namespace).To(Equal(namespace))
+		})
+
+		It("should return nil when Gateway doesn't match", func() {
+			group := meridio2v1alpha1.GroupVersion.Group
+			kind := kindDistributionGroup
+
+			l34route := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-route",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: "other-gateway"},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  "test-distgroup",
+							},
+						},
+					},
+				},
+			}
+
+			requests := controller.l34RouteEnqueue(ctx, l34route)
+			Expect(requests).To(BeNil())
+		})
+
+		It("should return nil when BackendRef is not DistributionGroup", func() {
+			otherKind := gatewayv1.Kind("Service")
+
+			l34route := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-route",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: gatewayv1.ObjectName(gatewayName)},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Kind: &otherKind,
+								Name: "test-service",
+							},
+						},
+					},
+				},
+			}
+
+			requests := controller.l34RouteEnqueue(ctx, l34route)
+			Expect(requests).To(BeEmpty())
+		})
+
+		It("should handle multiple BackendRefs", func() {
+			group := meridio2v1alpha1.GroupVersion.Group
+			kind := kindDistributionGroup
+
+			l34route := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-route",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: gatewayv1.ObjectName(gatewayName)},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  "distgroup-1",
+							},
+						},
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  "distgroup-2",
+							},
+						},
+					},
+				},
+			}
+
+			requests := controller.l34RouteEnqueue(ctx, l34route)
+			Expect(requests).To(HaveLen(2))
+			Expect(requests[0].Name).To(Equal("distgroup-1"))
+			Expect(requests[1].Name).To(Equal("distgroup-2"))
 		})
 	})
 })
