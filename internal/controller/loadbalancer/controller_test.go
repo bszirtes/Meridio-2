@@ -493,9 +493,9 @@ var _ = Describe("LoadBalancer Controller", func() {
 
 			// Verify targets were activated with correct identifiers
 			mockInstance := mockFactory.instances[distGroup.Name]
-			Expect(mockInstance.activatedTargets).To(HaveKey(5000)) // fwmark = 0 + 5000
+			Expect(mockInstance.activatedTargets).To(HaveKey(5000))  // fwmark = 0 + 5000
 			Expect(mockInstance.activatedTargets[5000]).To(Equal(1)) // index = 0 + 1
-			Expect(mockInstance.activatedTargets).To(HaveKey(5001)) // fwmark = 1 + 5000
+			Expect(mockInstance.activatedTargets).To(HaveKey(5001))  // fwmark = 1 + 5000
 			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
 		})
 	})
