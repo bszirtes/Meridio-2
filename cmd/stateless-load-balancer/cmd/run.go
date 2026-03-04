@@ -19,7 +19,7 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
-	"os"
+	"fmt"
 
 	"github.com/google/nftables"
 	"github.com/nordix/meridio/pkg/loadbalancer/nfqlb"
@@ -87,8 +87,7 @@ func runLoadBalancer(ctx context.Context, cfg *config.LoadBalancerConfig) error 
 	}
 	// Validate required fields
 	if cfg.GatewayName == "" || cfg.GatewayNamespace == "" {
-		setupLog.Error(nil, "gateway-name and gateway-namespace are required")
-		os.Exit(1)
+		return fmt.Errorf("gateway-name and gateway-namespace are required")
 	}
 
 	// Initialize NFQLB

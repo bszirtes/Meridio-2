@@ -17,9 +17,6 @@ limitations under the License.
 package config
 
 import (
-	"os"
-	"strconv"
-
 	"github.com/spf13/pflag"
 )
 
@@ -100,14 +97,4 @@ func (c *ManagerConfig) BindEnv(fs *pflag.FlagSet) {
 	bindString(fs, "metrics-cert-path", "MERIDIO_METRICS_CERT_PATH", &c.MetricsCertPath)
 	bindString(fs, "metrics-cert-name", "MERIDIO_METRICS_CERT_NAME", &c.MetricsCertName)
 	bindString(fs, "metrics-cert-key", "MERIDIO_METRICS_CERT_KEY", &c.MetricsCertKey)
-}
-
-func bindInt(fs *pflag.FlagSet, flagName, envName string, target *int) {
-	if !fs.Changed(flagName) {
-		if val := os.Getenv(envName); val != "" {
-			if parsed, err := strconv.Atoi(val); err == nil {
-				*target = parsed
-			}
-		}
-	}
 }
