@@ -19,6 +19,7 @@ package cmd
 import (
 	"crypto/tls"
 	goflag "flag"
+	"fmt"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +38,7 @@ import (
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 	"github.com/nordix/meridio-2/internal/common/config"
+	"github.com/nordix/meridio-2/internal/common/prerequisites"
 	"github.com/nordix/meridio-2/internal/controller/distributiongroup"
 	"github.com/nordix/meridio-2/internal/controller/gateway"
 	webhookv1alpha1 "github.com/nordix/meridio-2/internal/webhook/v1alpha1"
@@ -66,6 +68,15 @@ func NewRunCmd() *cobra.Command {
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			cfg.BindEnv(cmd.Flags())
 			ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
+
+			// Check if Gateway API CRDs are installed
+			if err := prerequisites.CheckGatewayAPI(); err != nil {
+				return fmt.Errorf("gateway API CRDs not found: %w\n\n"+
+					"Install for example with:\n"+
+					"  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml",
+					err)
+			}
+
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
