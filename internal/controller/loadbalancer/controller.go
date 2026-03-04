@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/google/nftables"
+	nspAPI "github.com/nordix/meridio/api/nsp/v1"
 	"github.com/nordix/meridio/pkg/loadbalancer/types"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -64,9 +65,13 @@ type Controller struct {
 	NFTChain         *nftables.Chain
 
 	mu        sync.Mutex
-	instances map[string]types.NFQueueLoadBalancer // key: DistributionGroup name
-	targets   map[string]map[int][]string          // key: DistributionGroup name -> identifier -> IPs
+	instances map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
+	targets   map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
+	flows     map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
 }
+
+const defaultMaxEndpoints = 32
+const kindDistributionGroup = "DistributionGroup"
 
 const identifierOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
 
@@ -112,7 +117,12 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	// TODO: Reconcile flows from L34Routes
+	// Reconcile flows from L34Routes
+	if err := c.reconcileFlows(ctx, distGroup); err != nil {
+		logr.Error(err, "Failed to reconcile flows")
+		return ctrl.Result{}, err
+	}
+
 	// TODO: Update nftables VIP rules
 	// TODO: Write readiness file
 
@@ -147,7 +157,7 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 		// Check if route references this DistributionGroup
 		for _, backendRef := range route.Spec.BackendRefs {
 			if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
-				backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" &&
+				backendRef.Kind != nil && string(*backendRef.Kind) == kindDistributionGroup &&
 				string(backendRef.Name) == distGroup.Name {
 				return true
 			}
@@ -177,7 +187,7 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 	}
 
 	// Get Maglev parameters
-	n := int32(32) // default MaxEndpoints
+	n := int32(defaultMaxEndpoints)
 	if distGroup.Spec.Maglev != nil {
 		n = distGroup.Spec.Maglev.MaxEndpoints
 	}
@@ -288,10 +298,188 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	return nil
 }
 
+func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) error {
+	logr := log.FromContext(ctx)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	instance, exists := c.instances[distGroup.Name]
+	if !exists {
+		return nil
+	}
+
+	// Initialize flows map if needed
+	if c.flows == nil {
+		c.flows = make(map[string]map[string]*meridio2v1alpha1.L34Route)
+	}
+	if c.flows[distGroup.Name] == nil {
+		c.flows[distGroup.Name] = make(map[string]*meridio2v1alpha1.L34Route)
+	}
+
+	// Check if DistributionGroup has endpoints before configuring flows
+	endpointSliceList := &discoveryv1.EndpointSliceList{}
+	if err := c.List(ctx, endpointSliceList,
+		client.InNamespace(c.GatewayNamespace),
+		client.MatchingLabels{
+			"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+		}); err != nil {
+		return err
+	}
+
+	hasEndpoints := false
+	for _, eps := range endpointSliceList.Items {
+		for _, endpoint := range eps.Endpoints {
+			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
+				hasEndpoints = true
+				break
+			}
+		}
+		if hasEndpoints {
+			break
+		}
+	}
+
+	if !hasEndpoints {
+		logr.Info("No ready endpoints, deleting flows", "distGroup", distGroup.Name)
+		// Delete all flows for this DistributionGroup
+		currentFlows := c.flows[distGroup.Name]
+		var errFinal error
+		for flowName := range currentFlows {
+			flow := &nspAPI.Flow{Name: flowName}
+			if err := instance.DeleteFlow(flow); err != nil {
+				logr.Error(err, "Failed to delete flow", "flow", flowName)
+				errFinal = fmt.Errorf("%w; failed to delete flow %s: %w", errFinal, flowName, err)
+			} else {
+				logr.Info("Deleted flow", "distGroup", distGroup.Name, "flow", flowName)
+			}
+		}
+		c.flows[distGroup.Name] = make(map[string]*meridio2v1alpha1.L34Route)
+		return errFinal
+	}
+
+	// Get L34Routes for this Gateway and DistributionGroup
+	l34routeList := &meridio2v1alpha1.L34RouteList{}
+	if err := c.List(ctx, l34routeList, client.InNamespace(c.GatewayNamespace)); err != nil {
+		return err
+	}
+
+	// Build new flows map
+	newFlows := make(map[string]*meridio2v1alpha1.L34Route)
+	for i := range l34routeList.Items {
+		route := &l34routeList.Items[i]
+
+		// Check if route references this Gateway
+		referencesGateway := false
+		for _, parentRef := range route.Spec.ParentRefs {
+			if string(parentRef.Name) == c.GatewayName &&
+				(parentRef.Namespace == nil || string(*parentRef.Namespace) == c.GatewayNamespace) {
+				referencesGateway = true
+				break
+			}
+		}
+		if !referencesGateway {
+			continue
+		}
+
+		// Check if route references this DistributionGroup
+		referencesDistGroup := false
+		var dgName string
+		for _, backendRef := range route.Spec.BackendRefs {
+			if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
+				backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" &&
+				string(backendRef.Name) == distGroup.Name {
+				referencesDistGroup = true
+				dgName = string(backendRef.Name)
+				break
+			}
+		}
+		if !referencesDistGroup {
+			continue
+		}
+
+		// Validate that referenced DistributionGroup exists
+		var dg meridio2v1alpha1.DistributionGroup
+		if err := c.Get(ctx, client.ObjectKey{Name: dgName, Namespace: c.GatewayNamespace}, &dg); err != nil {
+			if apierrors.IsNotFound(err) {
+				logr.Info("Skipping L34Route: DistributionGroup not found", "route", route.Name, "distributionGroup", dgName)
+				continue
+			}
+			return err
+		}
+
+		newFlows[route.Name] = route
+	}
+
+	// Delete removed flows
+	currentFlows := c.flows[distGroup.Name]
+	var errFinal error
+	for flowName := range currentFlows {
+		if _, exists := newFlows[flowName]; !exists {
+			flow := &nspAPI.Flow{Name: flowName}
+			if err := instance.DeleteFlow(flow); err != nil {
+				logr.Error(err, "Failed to delete flow", "flow", flowName)
+				errFinal = fmt.Errorf("%w; failed to delete flow %s: %w", errFinal, flowName, err)
+			} else {
+				logr.Info("Deleted flow", "distGroup", distGroup.Name, "flow", flowName)
+			}
+		}
+	}
+
+	// Add/update flows
+	for flowName, route := range newFlows {
+		flow := c.convertL34RouteToFlow(route)
+		if err := instance.SetFlow(flow); err != nil {
+			logr.Error(err, "Failed to set flow", "flow", flowName)
+			// TODO(P2): Detect NFQLB capacity errors and update DistributionGroup status
+			// if strings.Contains(err.Error(), "capacity exceeded") {
+			//     return fmt.Errorf("NFQLB capacity exceeded: %w", err)
+			// }
+			errFinal = fmt.Errorf("%w; failed to set flow %s: %w", errFinal, flowName, err)
+		} else {
+			logr.Info("Configured flow", "distGroup", distGroup.Name, "flow", flowName)
+		}
+	}
+
+	// Update tracked flows
+	c.flows[distGroup.Name] = newFlows
+
+	logr.Info("Reconciled flows", "distGroup", distGroup.Name, "count", len(newFlows))
+	return errFinal
+}
+
+func (c *Controller) convertL34RouteToFlow(route *meridio2v1alpha1.L34Route) *nspAPI.Flow {
+	flow := &nspAPI.Flow{
+		Name:                  route.Name,
+		Priority:              route.Spec.Priority,
+		SourceSubnets:         route.Spec.SourceCIDRs,
+		SourcePortRanges:      route.Spec.SourcePorts,
+		DestinationPortRanges: route.Spec.DestinationPorts,
+		ByteMatches:           route.Spec.ByteMatches,
+	}
+
+	// Convert protocols
+	protocols := make([]string, len(route.Spec.Protocols))
+	for i, p := range route.Spec.Protocols {
+		protocols[i] = string(p)
+	}
+	flow.Protocols = protocols
+
+	// Convert VIPs
+	vips := make([]*nspAPI.Vip, len(route.Spec.DestinationCIDRs))
+	for i, cidr := range route.Spec.DestinationCIDRs {
+		vips[i] = &nspAPI.Vip{Address: cidr}
+	}
+	flow.Vips = vips
+
+	return flow
+}
+
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&meridio2v1alpha1.DistributionGroup{}).
 		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(c.endpointSliceEnqueue)).
+		Watches(&meridio2v1alpha1.L34Route{}, handler.EnqueueRequestsFromMapFunc(c.l34RouteEnqueue)).
 		Named("loadbalancer").
 		Complete(c)
 }
@@ -315,4 +503,41 @@ func (c *Controller) endpointSliceEnqueue(ctx context.Context, obj client.Object
 			Namespace: obj.GetNamespace(),
 		},
 	}}
+}
+
+// l34RouteEnqueue maps L34Route events to DistributionGroup reconcile requests
+func (c *Controller) l34RouteEnqueue(ctx context.Context, obj client.Object) []ctrl.Request {
+	route, ok := obj.(*meridio2v1alpha1.L34Route)
+	if !ok {
+		return nil
+	}
+
+	// Check if route references this Gateway
+	referencesGateway := false
+	for _, parentRef := range route.Spec.ParentRefs {
+		if string(parentRef.Name) == c.GatewayName &&
+			(parentRef.Namespace == nil || string(*parentRef.Namespace) == c.GatewayNamespace) {
+			referencesGateway = true
+			break
+		}
+	}
+	if !referencesGateway {
+		return nil
+	}
+
+	// Enqueue all DistributionGroups referenced by this route
+	var requests []ctrl.Request
+	for _, backendRef := range route.Spec.BackendRefs {
+		if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
+			backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" {
+			requests = append(requests, ctrl.Request{
+				NamespacedName: client.ObjectKey{
+					Name:      string(backendRef.Name),
+					Namespace: c.GatewayNamespace,
+				},
+			})
+		}
+	}
+
+	return requests
 }
