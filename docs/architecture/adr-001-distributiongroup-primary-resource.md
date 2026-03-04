@@ -103,20 +103,9 @@ This ensures:
 - Not analogous to Service/kube-proxy model
 - DistributionGroup changes trigger Gateway reconcile (extra hop)
 - Less clear ownership (NFQLB lifecycle not directly tied to DistributionGroup)
+- Reconciles ALL DistributionGroups when only one changes (inefficient)
 
-**Rejected because**: Doesn't match Kubernetes architectural patterns
-
-### Alternative 2: Watch Both Gateway and DistributionGroup
-
-**Pros**:
-- Could optimize for both patterns
-
-**Cons**:
-- Complexity: Two reconciliation paths
-- Confusion: Which resource is "primary"?
-- Maintenance burden: Two code paths to maintain
-
-**Rejected because**: Unnecessary complexity
+**Rejected because**: Doesn't match Kubernetes architectural patterns and less efficient reconciliation
 
 ## References
 
