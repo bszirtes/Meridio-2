@@ -77,7 +77,7 @@ kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
 
 # 3. Verify NFQLB instance exists
 kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
-  nfqlb show --shm=<distgroup-name>
+  nfqlb show --shm=tshm-<distgroup-name>
 
 # Expected output:
 # Maglev: M=3200, N=32
@@ -113,7 +113,7 @@ kubectl get endpointslice <name> -o jsonpath='{.endpoints[*].zone}'
 
 # 2. Verify targets are activated in NFQLB
 kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
-  nfqlb show --shm=<distgroup-name>
+  nfqlb show --shm=tshm-<distgroup-name>
 
 # Expected output:
 # Targets: 3
@@ -145,7 +145,7 @@ sleep 5
 ```bash
 # Verify target count decreased
 kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
-  nfqlb show --shm=<distgroup-name>
+  nfqlb show --shm=tshm-<distgroup-name>
 
 # Expected output:
 # Targets: 2
@@ -183,7 +183,7 @@ kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
 for dg in web-backends api-backends; do
   echo "=== $dg ==="
   kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
-    nfqlb show --shm=$dg
+    nfqlb show --shm=tshm-$dg
 done
 ```
 
@@ -215,7 +215,7 @@ kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
 
 # Verify other instance still exists
 kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
-  nfqlb show --shm=api-backends
+  nfqlb show --shm=tshm-api-backends
 
 # Expected: Still shows api-backends instance
 ```
@@ -293,7 +293,7 @@ kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
 
 # Check instance details
 kubectl exec -n meridio-system <lb-pod> -c stateless-load-balancer -- \
-  nfqlb show --shm=<distgroup-name>
+  nfqlb show --shm=tshm-<distgroup-name>
 ```
 
 ### Check nftables Rules (TODO)
