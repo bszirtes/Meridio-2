@@ -112,6 +112,14 @@ vet: ## Run go vet against code.
 test: generate setup-envtest ## Run the unit tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
+.PHONY: install-hooks
+install-hooks: ## Install git pre-commit hook to run 'make check' before commits.
+	@echo "Installing git pre-commit hook..."
+	@cp scripts/pre-commit .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "✅ Pre-commit hook installed. Run 'make check' will now run automatically before commits."
+	@echo "   To skip the check, use: git commit --no-verify"
+
 ################################################################################
 ##@ Code generation
 ################################################################################

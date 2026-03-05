@@ -1,0 +1,22 @@
+#!/bin/bash
+# Pre-commit hook to run 'make check' before allowing commit
+#
+# Installation:
+#   cp scripts/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# Or run: make install-hooks
+
+echo "Running 'make check' before commit..."
+
+make check
+
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "❌ 'make check' failed. Commit aborted."
+    echo "Fix the issues and try again, or use 'git commit --no-verify' to skip this check."
+    exit 1
+fi
+
+echo "✅ 'make check' passed. Proceeding with commit."
+exit 0
