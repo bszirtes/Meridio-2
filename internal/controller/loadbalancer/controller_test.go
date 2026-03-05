@@ -34,6 +34,12 @@ import (
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 )
 
+const (
+	testZoneMaglev0 = "maglev:0"
+	testZoneMaglev1 = "maglev:1"
+	testZoneMaglev2 = "maglev:2"
+)
+
 func TestLoadBalancerController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "LoadBalancer Controller Suite")
@@ -324,9 +330,8 @@ var _ = Describe("LoadBalancer Controller", func() {
 
 		It("should activate new targets with correct index and fwmark", func() {
 			ready := true
-			// Zone field contains identifier (0-based)
-			zone0 := "0"
-			zone1 := "1"
+			zone0 := testZoneMaglev0
+			zone1 := testZoneMaglev1
 			endpointSlice := &discoveryv1.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-eps",
@@ -465,10 +470,10 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(mockInstance.deactivatedIndexes).To(HaveKey(1))
 		})
 
-		It("should parse Zone field with maglev: prefix", func() {
+		It("should parse Zone field in maglev:N format", func() {
 			ready := true
-			zone0 := "maglev:0"
-			zone1 := "maglev:1"
+			zone0 := testZoneMaglev0
+			zone1 := testZoneMaglev1
 			endpointSlice := &discoveryv1.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-eps",
@@ -511,6 +516,51 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(mockInstance.activatedTargets).To(HaveKey(5001))  // fwmark = 1 + 5000
 			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
 		})
+
+		It("should skip endpoints with invalid Zone format", func() {
+			ready := true
+			invalidZone := "0" // Plain integer, not maglev:N format
+			validZone := testZoneMaglev0
+			endpointSlice := &discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-eps",
+					Namespace: namespace,
+					Labels: map[string]string{
+						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+					},
+				},
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.0.0.1"},
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &ready,
+						},
+						Zone: &invalidZone, // Should be skipped
+					},
+					{
+						Addresses: []string{"10.0.0.2"},
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &ready,
+						},
+						Zone: &validZone, // Should be activated
+					},
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(endpointSlice).
+				Build()
+			controller.Client = fakeClient
+
+			err := controller.reconcileTargets(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Only valid endpoint should be activated
+			mockInstance := mockFactory.instances[distGroup.Name]
+			Expect(mockInstance.activatedTargets).To(HaveLen(1))
+			Expect(mockInstance.activatedTargets).To(HaveKey(5000)) // Only maglev:0
+		})
 	})
 
 	Describe("reconcileFlows", func() {
@@ -532,7 +582,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 		It("should configure flow from L34Route", func() {
 			group := meridio2v1alpha1.GroupVersion.Group
 			kind := kindDistributionGroup
-			
+
 			// Create EndpointSlice with ready endpoints
 			ready := true
 			zone := "maglev:0"
@@ -554,7 +604,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 					},
 				},
 			}
-			
+
 			l34route := &meridio2v1alpha1.L34Route{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-route",
