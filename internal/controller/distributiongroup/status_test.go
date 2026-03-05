@@ -108,10 +108,10 @@ func TestBuildCapacityMessage_SingleNetwork(t *testing.T) {
 		t.Errorf("Message should contain CIDR")
 	}
 	if !strings.Contains(msg, "5/37 pods excluded") {
-		t.Errorf("Message should contain pod counts")
+		t.Errorf("Message should contain pod counts, got: %q", msg)
 	}
-	if !strings.Contains(msg, "32/32 capacity") {
-		t.Errorf("Message should contain capacity info")
+	if !strings.Contains(msg, "(32 capacity)") {
+		t.Errorf("Message should contain capacity info, got: %q", msg)
 	}
 }
 

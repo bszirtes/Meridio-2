@@ -95,8 +95,8 @@ func buildCapacityMessage(issues map[string]struct{ excluded, total int32 }) str
 	parts := make([]string, 0, len(issues))
 	for cidr, info := range issues {
 		capacity := info.total - info.excluded
-		parts = append(parts, fmt.Sprintf("%s: %d/%d pods excluded (%d/%d capacity)",
-			cidr, info.excluded, info.total, capacity, capacity))
+		parts = append(parts, fmt.Sprintf("%s: %d/%d pods excluded (%d capacity)",
+			cidr, info.excluded, info.total, capacity))
 	}
 
 	msg := "Networks with capacity issues: " + strings.Join(parts, ", ")
