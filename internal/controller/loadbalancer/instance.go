@@ -19,10 +19,12 @@ package loadbalancer
 import (
 	"context"
 
-	"github.com/nordix/meridio/pkg/loadbalancer/types"
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
+	"github.com/nordix/meridio/pkg/loadbalancer/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+const defaultMaxEndpoints = 32
 
 // reconcileNFQLBInstance creates or retrieves the NFQLB instance for a DistributionGroup.
 func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) error {
@@ -47,7 +49,7 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 	// Calculate M and N parameters for Maglev
 	// M = N × 100 (as per design)
 	// N = maxEndpoints from spec, default 32
-	n := int32(32)
+	n := int32(defaultMaxEndpoints)
 	if distGroup.Spec.Maglev != nil && distGroup.Spec.Maglev.MaxEndpoints > 0 {
 		n = distGroup.Spec.Maglev.MaxEndpoints
 	}

@@ -27,7 +27,7 @@ import (
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 )
 
-const fwmarkOffset = 5000
+const fwmarkOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
 
 // reconcileTargets synchronizes NFQLB targets from EndpointSlices.
 func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) error {
@@ -70,13 +70,14 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 				continue
 			}
 
-			// Parse Zone field - support both "maglev:N" and plain "N" formats
+			// Parse Zone field - expected format: "maglev:N"
 			zoneStr := *endpoint.Zone
-			if len(zoneStr) > 7 && zoneStr[:7] == "maglev:" {
-				zoneStr = zoneStr[7:] // Strip "maglev:" prefix
+			if len(zoneStr) < 8 || zoneStr[:7] != "maglev:" {
+				logr.Error(nil, "Invalid Zone format, expected 'maglev:N'", "zone", zoneStr)
+				continue
 			}
 
-			identifier, err := strconv.Atoi(zoneStr)
+			identifier, err := strconv.Atoi(zoneStr[7:])
 			if err != nil {
 				logr.Error(err, "Invalid identifier in Zone field", "zone", *endpoint.Zone)
 				continue
@@ -99,7 +100,7 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 
 	// Activate new/updated targets
 	for identifier, ips := range newTargets {
-		index := identifier + 1      // NFQLB uses 1-based indexing
+		index := identifier + 1             // NFQLB uses 1-based indexing
 		fwmark := identifier + fwmarkOffset // fwmark = identifier + offset
 		if err := instance.Activate(index, fwmark); err != nil {
 			logr.Error(err, "Failed to activate target", "identifier", identifier, "ips", ips)

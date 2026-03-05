@@ -67,10 +67,7 @@ type Controller struct {
 	flows     map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
 }
 
-const defaultMaxEndpoints = 32
 const kindDistributionGroup = "DistributionGroup"
-
-const identifierOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
 
 func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logr := log.FromContext(ctx)
