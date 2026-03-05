@@ -317,6 +317,47 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 		c.flows[distGroup.Name] = make(map[string]*meridio2v1alpha1.L34Route)
 	}
 
+	// Check if DistributionGroup has endpoints before configuring flows
+	endpointSliceList := &discoveryv1.EndpointSliceList{}
+	if err := c.List(ctx, endpointSliceList,
+		client.InNamespace(c.GatewayNamespace),
+		client.MatchingLabels{
+			"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+		}); err != nil {
+		return err
+	}
+
+	hasEndpoints := false
+	for _, eps := range endpointSliceList.Items {
+		for _, endpoint := range eps.Endpoints {
+			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
+				hasEndpoints = true
+				break
+			}
+		}
+		if hasEndpoints {
+			break
+		}
+	}
+
+	if !hasEndpoints {
+		logr.Info("No ready endpoints, deleting flows", "distGroup", distGroup.Name)
+		// Delete all flows for this DistributionGroup
+		currentFlows := c.flows[distGroup.Name]
+		var errFinal error
+		for flowName := range currentFlows {
+			flow := &nspAPI.Flow{Name: flowName}
+			if err := instance.DeleteFlow(flow); err != nil {
+				logr.Error(err, "Failed to delete flow", "flow", flowName)
+				errFinal = fmt.Errorf("%w; failed to delete flow %s: %w", errFinal, flowName, err)
+			} else {
+				logr.Info("Deleted flow", "distGroup", distGroup.Name, "flow", flowName)
+			}
+		}
+		c.flows[distGroup.Name] = make(map[string]*meridio2v1alpha1.L34Route)
+		return errFinal
+	}
+
 	// Get L34Routes for this Gateway and DistributionGroup
 	l34routeList := &meridio2v1alpha1.L34RouteList{}
 	if err := c.List(ctx, l34routeList, client.InNamespace(c.GatewayNamespace)); err != nil {
@@ -343,11 +384,13 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 
 		// Check if route references this DistributionGroup
 		referencesDistGroup := false
+		var dgName string
 		for _, backendRef := range route.Spec.BackendRefs {
 			if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
 				backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" &&
 				string(backendRef.Name) == distGroup.Name {
 				referencesDistGroup = true
+				dgName = string(backendRef.Name)
 				break
 			}
 		}
@@ -355,16 +398,28 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 			continue
 		}
 
+		// Validate that referenced DistributionGroup exists
+		var dg meridio2v1alpha1.DistributionGroup
+		if err := c.Get(ctx, client.ObjectKey{Name: dgName, Namespace: c.GatewayNamespace}, &dg); err != nil {
+			if apierrors.IsNotFound(err) {
+				logr.Info("Skipping L34Route: DistributionGroup not found", "route", route.Name, "distributionGroup", dgName)
+				continue
+			}
+			return err
+		}
+
 		newFlows[route.Name] = route
 	}
 
 	// Delete removed flows
 	currentFlows := c.flows[distGroup.Name]
+	var errFinal error
 	for flowName := range currentFlows {
 		if _, exists := newFlows[flowName]; !exists {
 			flow := &nspAPI.Flow{Name: flowName}
 			if err := instance.DeleteFlow(flow); err != nil {
 				logr.Error(err, "Failed to delete flow", "flow", flowName)
+				errFinal = fmt.Errorf("%w; failed to delete flow %s: %w", errFinal, flowName, err)
 			} else {
 				logr.Info("Deleted flow", "distGroup", distGroup.Name, "flow", flowName)
 			}
@@ -376,6 +431,11 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 		flow := c.convertL34RouteToFlow(route)
 		if err := instance.SetFlow(flow); err != nil {
 			logr.Error(err, "Failed to set flow", "flow", flowName)
+			// TODO(P2): Detect NFQLB capacity errors and update DistributionGroup status
+			// if strings.Contains(err.Error(), "capacity exceeded") {
+			//     return fmt.Errorf("NFQLB capacity exceeded: %w", err)
+			// }
+			errFinal = fmt.Errorf("%w; failed to set flow %s: %w", errFinal, flowName, err)
 		} else {
 			logr.Info("Configured flow", "distGroup", distGroup.Name, "flow", flowName)
 		}
@@ -385,7 +445,7 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 	c.flows[distGroup.Name] = newFlows
 
 	logr.Info("Reconciled flows", "distGroup", distGroup.Name, "count", len(newFlows))
-	return nil
+	return errFinal
 }
 
 func (c *Controller) convertL34RouteToFlow(route *meridio2v1alpha1.L34Route) *nspAPI.Flow {

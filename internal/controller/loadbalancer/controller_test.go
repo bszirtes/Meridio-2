@@ -532,6 +532,29 @@ var _ = Describe("LoadBalancer Controller", func() {
 		It("should configure flow from L34Route", func() {
 			group := meridio2v1alpha1.GroupVersion.Group
 			kind := kindDistributionGroup
+			
+			// Create EndpointSlice with ready endpoints
+			ready := true
+			zone := "maglev:0"
+			endpointSlice := &discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-eps",
+					Namespace: namespace,
+					Labels: map[string]string{
+						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+					},
+				},
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.0.0.1"},
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &ready,
+						},
+						Zone: &zone,
+					},
+				},
+			}
+			
 			l34route := &meridio2v1alpha1.L34Route{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-route",
@@ -561,7 +584,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 
 			fakeClient = fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(l34route).
+				WithObjects(distGroup, endpointSlice, l34route).
 				Build()
 			controller.Client = fakeClient
 
@@ -590,6 +613,28 @@ var _ = Describe("LoadBalancer Controller", func() {
 		It("should handle multiple L34Routes for same DistributionGroup", func() {
 			group := meridio2v1alpha1.GroupVersion.Group
 			kind := kindDistributionGroup
+
+			// Create EndpointSlice with ready endpoints
+			ready := true
+			zone := "maglev:0"
+			endpointSlice := &discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-eps",
+					Namespace: namespace,
+					Labels: map[string]string{
+						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+					},
+				},
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.0.0.1"},
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &ready,
+						},
+						Zone: &zone,
+					},
+				},
+			}
 
 			l34route1 := &meridio2v1alpha1.L34Route{
 				ObjectMeta: metav1.ObjectMeta{
@@ -643,7 +688,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 
 			fakeClient = fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(l34route1, l34route2).
+				WithObjects(distGroup, endpointSlice, l34route1, l34route2).
 				Build()
 			controller.Client = fakeClient
 
@@ -739,6 +784,59 @@ var _ = Describe("LoadBalancer Controller", func() {
 			// No flows should be configured
 			mockInstance := mockFactory.instances[distGroup.Name]
 			Expect(mockInstance.flows).To(BeEmpty())
+		})
+
+		It("should delete flows when DistributionGroup has no endpoints", func() {
+			group := meridio2v1alpha1.GroupVersion.Group
+			kind := kindDistributionGroup
+
+			// Setup: configure a flow first
+			controller.flows = map[string]map[string]*meridio2v1alpha1.L34Route{
+				distGroup.Name: {
+					"test-route": &meridio2v1alpha1.L34Route{
+						ObjectMeta: metav1.ObjectMeta{Name: "test-route"},
+					},
+				},
+			}
+
+			l34route := &meridio2v1alpha1.L34Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-route",
+					Namespace: namespace,
+				},
+				Spec: meridio2v1alpha1.L34RouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{
+						{Name: gatewayv1.ObjectName(gatewayName)},
+					},
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Group: (*gatewayv1.Group)(&group),
+								Kind:  (*gatewayv1.Kind)(&kind),
+								Name:  gatewayv1.ObjectName(distGroup.Name),
+							},
+						},
+					},
+					DestinationCIDRs: []string{"20.0.0.1/32"},
+					Protocols:        []meridio2v1alpha1.TransportProtocol{meridio2v1alpha1.TCP},
+					Priority:         100,
+				},
+			}
+
+			// No EndpointSlice (no endpoints)
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(distGroup, l34route).
+				Build()
+			controller.Client = fakeClient
+
+			err := controller.reconcileFlows(ctx, distGroup)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Flows should be deleted
+			mockInstance := mockFactory.instances[distGroup.Name]
+			Expect(mockInstance.flows).To(BeEmpty())
+			Expect(mockInstance.deletedFlows).To(HaveKey("test-route"))
 		})
 
 		It("should delete flows when L34Route is removed", func() {
