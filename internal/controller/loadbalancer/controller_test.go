@@ -532,7 +532,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 		It("should configure flow from L34Route", func() {
 			group := meridio2v1alpha1.GroupVersion.Group
 			kind := kindDistributionGroup
-			
+
 			// Create EndpointSlice with ready endpoints
 			ready := true
 			zone := "maglev:0"
@@ -554,7 +554,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 					},
 				},
 			}
-			
+
 			l34route := &meridio2v1alpha1.L34Route{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-route",
