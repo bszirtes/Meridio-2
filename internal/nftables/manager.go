@@ -26,24 +26,28 @@ import (
 )
 
 const (
-	chainName          = "prerouting"
-	ipv4VIPSetName     = "ipv4-vips"
-	ipv6VIPSetName     = "ipv6-vips"
-	nftqueueFlagFanout = 0x01
+	preroutingChainName = "prerouting"
+	outputChainName     = "output"
+	ipv4VIPSetName      = "ipv4-vips"
+	ipv6VIPSetName      = "ipv6-vips"
+	nftqueueFlagFanout  = 0x01
 )
 
 // Manager manages nftables rules for VIP traffic.
 type Manager struct {
-	tableName  string
-	queueNum   uint16
-	queueTotal uint16
-	table      *nftables.Table
-	chain      *nftables.Chain
-	ipv4Set    *nftables.Set
-	ipv6Set    *nftables.Set
-	ipv4Rule   *nftables.Rule
-	ipv6Rule   *nftables.Rule
-	conn       *nftables.Conn
+	tableName   string
+	queueNum    uint16
+	queueTotal  uint16
+	table       *nftables.Table
+	preChain    *nftables.Chain
+	outputChain *nftables.Chain
+	ipv4Set     *nftables.Set
+	ipv6Set     *nftables.Set
+	ipv4PreRule *nftables.Rule
+	ipv6PreRule *nftables.Rule
+	ipv4OutRule *nftables.Rule
+	ipv6OutRule *nftables.Rule
+	conn        *nftables.Conn
 }
 
 // NewManager creates a new nftables manager.
@@ -64,7 +68,10 @@ func (m *Manager) Setup() error {
 	if err := m.createSets(); err != nil {
 		return err
 	}
-	if err := m.createChainAndRules(); err != nil {
+	if err := m.createPreroutingChain(); err != nil {
+		return err
+	}
+	if err := m.createOutputChain(); err != nil {
 		return err
 	}
 	return nil
@@ -122,9 +129,9 @@ func (m *Manager) createSets() error {
 	return m.conn.Flush()
 }
 
-func (m *Manager) createChainAndRules() error {
-	m.chain = m.conn.AddChain(&nftables.Chain{
-		Name:     chainName,
+func (m *Manager) createPreroutingChain() error {
+	m.preChain = m.conn.AddChain(&nftables.Chain{
+		Name:     preroutingChainName,
 		Table:    m.table,
 		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookPrerouting,
@@ -132,9 +139,9 @@ func (m *Manager) createChainAndRules() error {
 	})
 
 	// IPv4 rule: ip daddr @ipv4-vips counter queue num X-Y fanout
-	m.ipv4Rule = m.conn.AddRule(&nftables.Rule{
+	m.ipv4PreRule = m.conn.AddRule(&nftables.Rule{
 		Table: m.table,
-		Chain: m.chain,
+		Chain: m.preChain,
 		Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.AF_INET}},
@@ -146,12 +153,56 @@ func (m *Manager) createChainAndRules() error {
 	})
 
 	// IPv6 rule: ip6 daddr @ipv6-vips counter queue num X-Y fanout
-	m.ipv6Rule = m.conn.AddRule(&nftables.Rule{
+	m.ipv6PreRule = m.conn.AddRule(&nftables.Rule{
 		Table: m.table,
-		Chain: m.chain,
+		Chain: m.preChain,
 		Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.AF_INET6}},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
+			&expr.Lookup{SourceRegister: 1, SetName: m.ipv6Set.Name, SetID: m.ipv6Set.ID},
+			&expr.Counter{},
+			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: nftqueueFlagFanout},
+		},
+	})
+
+	return m.conn.Flush()
+}
+
+func (m *Manager) createOutputChain() error {
+	m.outputChain = m.conn.AddChain(&nftables.Chain{
+		Name:     outputChainName,
+		Table:    m.table,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookOutput,
+		Priority: nftables.ChainPriorityFilter,
+	})
+
+	// IPv4 rule: meta l4proto icmp ip daddr @ipv4-vips counter queue num X-Y fanout
+	m.ipv4OutRule = m.conn.AddRule(&nftables.Rule{
+		Table: m.table,
+		Chain: m.outputChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.AF_INET}},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_ICMP}},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+			&expr.Lookup{SourceRegister: 1, SetName: m.ipv4Set.Name, SetID: m.ipv4Set.ID},
+			&expr.Counter{},
+			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: nftqueueFlagFanout},
+		},
+	})
+
+	// IPv6 rule: meta l4proto icmpv6 ip6 daddr @ipv6-vips counter queue num X-Y fanout
+	m.ipv6OutRule = m.conn.AddRule(&nftables.Rule{
+		Table: m.table,
+		Chain: m.outputChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.AF_INET6}},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_ICMPV6}},
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
 			&expr.Lookup{SourceRegister: 1, SetName: m.ipv6Set.Name, SetID: m.ipv6Set.ID},
 			&expr.Counter{},
