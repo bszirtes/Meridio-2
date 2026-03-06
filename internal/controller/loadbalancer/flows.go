@@ -66,6 +66,13 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 		return err
 	}
 
+	// Extract VIPs from all flows and configure nftables
+	vips := extractVIPs(newFlows)
+	if err := c.configureNftables(ctx, distGroup.Name, vips); err != nil {
+		logr.Error(err, "Failed to configure nftables", "distGroup", distGroup.Name)
+		return fmt.Errorf("failed to configure nftables: %w", err)
+	}
+
 	// Delete removed flows
 	currentFlows := c.flows[distGroup.Name]
 	var errFinal error
@@ -232,4 +239,37 @@ func (c *Controller) convertL34RouteToFlow(route *meridio2v1alpha1.L34Route) *ns
 	flow.Vips = vips
 
 	return flow
+}
+
+// extractVIPs extracts all unique VIPs from L34Routes.
+func extractVIPs(routes map[string]*meridio2v1alpha1.L34Route) []string {
+	vipSet := make(map[string]struct{})
+	for _, route := range routes {
+		for _, vip := range route.Spec.DestinationCIDRs {
+			vipSet[vip] = struct{}{}
+		}
+	}
+
+	vips := make([]string, 0, len(vipSet))
+	for vip := range vipSet {
+		vips = append(vips, vip)
+	}
+	return vips
+}
+
+// configureNftables configures nftables rules for VIPs.
+func (c *Controller) configureNftables(ctx context.Context, distGroupName string, vips []string) error {
+	logr := log.FromContext(ctx)
+
+	nftMgr, exists := c.nftManagers[distGroupName]
+	if !exists {
+		return fmt.Errorf("nftables manager not found for DistributionGroup %s", distGroupName)
+	}
+
+	if err := nftMgr.SetVIPs(vips); err != nil {
+		return fmt.Errorf("failed to set VIPs in nftables: %w", err)
+	}
+
+	logr.Info("Configured nftables VIP rules", "distGroup", distGroupName, "vipCount", len(vips))
+	return nil
 }
