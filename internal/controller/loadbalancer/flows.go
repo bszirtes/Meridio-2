@@ -66,14 +66,20 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 		return err
 	}
 
-	// Extract VIPs from all flows and configure nftables
-	vips := extractVIPs(newFlows)
-	if err := c.configureNftables(ctx, distGroup.Name, vips); err != nil {
-		logr.Error(err, "Failed to configure nftables", "distGroup", distGroup.Name)
-		return fmt.Errorf("failed to configure nftables: %w", err)
+	// BUG FIX #2: Handle empty L34Route list
+	if len(newFlows) == 0 {
+		logr.Info("No L34Routes found, deleting all flows", "distGroup", distGroup.Name)
+		if err := c.deleteAllFlows(ctx, instance, distGroup.Name); err != nil {
+			logr.Error(err, "Failed to delete all flows")
+		}
+		// Clear nftables VIPs
+		if err := c.configureNftables(ctx, distGroup.Name, []string{}); err != nil {
+			logr.Error(err, "Failed to clear nftables VIPs")
+		}
+		return nil
 	}
 
-	// Delete removed flows
+	// Delete removed flows first
 	currentFlows := c.flows[distGroup.Name]
 	var errFinal error
 	for flowName := range currentFlows {
@@ -88,25 +94,30 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 		}
 	}
 
-	// Add/update flows
+	// IMPROVEMENT #5: Add/update flows BEFORE configuring nftables
+	successfulFlows := make(map[string]*meridio2v1alpha1.L34Route)
 	for flowName, route := range newFlows {
 		flow := c.convertL34RouteToFlow(route)
 		if err := instance.SetFlow(flow); err != nil {
 			logr.Error(err, "Failed to set flow", "flow", flowName)
-			// TODO(P2): Detect NFQLB capacity errors and update DistributionGroup status
-			// if strings.Contains(err.Error(), "capacity exceeded") {
-			//     return fmt.Errorf("NFQLB capacity exceeded: %w", err)
-			// }
 			errFinal = fmt.Errorf("%w; failed to set flow %s: %w", errFinal, flowName, err)
 		} else {
 			logr.Info("Configured flow", "distGroup", distGroup.Name, "flow", flowName)
+			successfulFlows[flowName] = route
 		}
 	}
 
-	// Update tracked flows
-	c.flows[distGroup.Name] = newFlows
+	// Configure nftables AFTER flows are ready
+	vips := extractVIPs(successfulFlows)
+	if err := c.configureNftables(ctx, distGroup.Name, vips); err != nil {
+		logr.Error(err, "Failed to configure nftables", "distGroup", distGroup.Name)
+		return fmt.Errorf("failed to configure nftables: %w", err)
+	}
 
-	logr.Info("Reconciled flows", "distGroup", distGroup.Name, "count", len(newFlows))
+	// BUG FIX #3: Update tracked flows with only successful ones
+	c.flows[distGroup.Name] = successfulFlows
+
+	logr.Info("Reconciled flows", "distGroup", distGroup.Name, "count", len(successfulFlows))
 	return errFinal
 }
 
