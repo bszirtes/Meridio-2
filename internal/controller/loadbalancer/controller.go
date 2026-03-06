@@ -88,10 +88,14 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			// DistributionGroup deleted - cleanup NFQLB instance and nftables
 			c.mu.Lock()
 			defer c.mu.Unlock()
-			if _, exists := c.instances[req.Name]; exists {
+			if instance, exists := c.instances[req.Name]; exists {
 				logr.Info("Deleting NFQLB instance for deleted DistributionGroup", "distGroup", req.Name)
+				if err := instance.Delete(); err != nil {
+					logr.Error(err, "Failed to delete NFQLB instance", "distGroup", req.Name)
+				}
 				delete(c.instances, req.Name)
 				delete(c.targets, req.Name)
+				delete(c.flows, req.Name)
 			}
 			if nftMgr, exists := c.nftManagers[req.Name]; exists {
 				if err := nftMgr.Cleanup(); err != nil {
