@@ -90,6 +90,13 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 	c.instances[distGroup.Name] = instance
 	c.nftManagers[distGroup.Name] = nftMgr
 	c.targets[distGroup.Name] = make(map[int][]string)
+
+	// Create readiness file
+	if err := c.createReadinessFile(distGroup.Name); err != nil {
+		logr.Error(err, "Failed to create readiness file", "distGroup", distGroup.Name)
+		// Non-fatal: continue even if readiness file creation fails
+	}
+
 	logr.Info("Created NFQLB instance", "distGroup", distGroup.Name, "M", m, "N", n)
 
 	return nil
