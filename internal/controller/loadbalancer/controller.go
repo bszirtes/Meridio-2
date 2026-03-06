@@ -53,18 +53,27 @@ import (
 // - Gateway filtering: Only reconciles DistributionGroups for this Gateway
 type Controller struct {
 	client.Client
-	Scheme           *runtime.Scheme
-	GatewayName      string
-	GatewayNamespace string
-	LBFactory        types.NFQueueLoadBalancerFactory
-	NFTConn          *nftables.Conn
-	NFTTable         *nftables.Table
-	NFTChain         *nftables.Chain
+	Scheme            *runtime.Scheme
+	GatewayName       string
+	GatewayNamespace  string
+	LBFactory         types.NFQueueLoadBalancerFactory
+	NFTConn           *nftables.Conn
+	NFTTable          *nftables.Table
+	NFTChain          *nftables.Chain
+	NftManagerFactory func(distGroupName string, queueNum, queueTotal uint16) (nftablesManager, error)
 
-	mu        sync.Mutex
-	instances map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
-	targets   map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
-	flows     map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
+	mu          sync.Mutex
+	instances   map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
+	nftManagers map[string]nftablesManager                       // key: DistributionGroup name
+	targets     map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
+	flows       map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
+}
+
+// nftablesManager interface for nftables operations
+type nftablesManager interface {
+	Setup() error
+	SetVIPs(cidrs []string) error
+	Cleanup() error
 }
 
 const kindDistributionGroup = "DistributionGroup"
@@ -76,13 +85,19 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	distGroup := &meridio2v1alpha1.DistributionGroup{}
 	if err := c.Get(ctx, req.NamespacedName, distGroup); err != nil {
 		if apierrors.IsNotFound(err) {
-			// DistributionGroup deleted - cleanup NFQLB instance
+			// DistributionGroup deleted - cleanup NFQLB instance and nftables
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			if _, exists := c.instances[req.Name]; exists {
 				logr.Info("Deleting NFQLB instance for deleted DistributionGroup", "distGroup", req.Name)
 				delete(c.instances, req.Name)
 				delete(c.targets, req.Name)
+			}
+			if nftMgr, exists := c.nftManagers[req.Name]; exists {
+				if err := nftMgr.Cleanup(); err != nil {
+					logr.Error(err, "Failed to cleanup nftables", "distGroup", req.Name)
+				}
+				delete(c.nftManagers, req.Name)
 			}
 			return ctrl.Result{}, nil
 		}
@@ -117,7 +132,6 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	// TODO: Update nftables VIP rules
 	// TODO: Write readiness file
 
 	return ctrl.Result{}, nil
