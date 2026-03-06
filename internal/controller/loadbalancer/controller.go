@@ -103,6 +103,10 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				}
 				delete(c.nftManagers, req.Name)
 			}
+			// Remove readiness file
+			if err := c.removeReadinessFile(req.Name); err != nil {
+				logr.Error(err, "Failed to remove readiness file", "distGroup", req.Name)
+			}
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
