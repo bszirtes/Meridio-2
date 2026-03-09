@@ -17,16 +17,211 @@ limitations under the License.
 package gateway
 
 import (
-	. "github.com/onsi/ginkgo/v2"
+	"context"
+	"testing"
+
+	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
+	"github.com/stretchr/testify/assert"
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-var _ = Describe("Gateway Controller", func() {
-	Context("When reconciling a resource", func() {
+// Note: The fake client simulates a Kubernetes API server using an in-memory
+// object store. However, it doesn't replicate all API server functionalities.
+// Notably, CRD defaults, webhooks, and metadata.generation are not automatically
+// applied/updated.
 
-		It("should successfully reconcile the resource", func() {
+const testControllerName = "example.com/gateway-controller"
+const testGatewayClassName = "test-class"
+const testGatewayName = "test-gateway"
+const testNamespace = "default"
 
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
-		})
+func newScheme() *runtime.Scheme {
+	scheme := runtime.NewScheme()
+	_ = gatewayv1.Install(scheme)
+	_ = meridio2v1alpha1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+	return scheme
+}
+
+func newGatewayClass(controllerName string) *gatewayv1.GatewayClass {
+	return &gatewayv1.GatewayClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: testGatewayClassName,
+		},
+		Spec: gatewayv1.GatewayClassSpec{
+			ControllerName: gatewayv1.GatewayController(controllerName),
+		},
+	}
+}
+
+func newGateway(gatewayClassName string) *gatewayv1.Gateway {
+	return &gatewayv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testGatewayName,
+			Namespace: testNamespace,
+		},
+		Spec: gatewayv1.GatewaySpec{
+			GatewayClassName: gatewayv1.ObjectName(gatewayClassName),
+		},
+	}
+}
+
+func setupReconciler(objects ...client.Object) (*GatewayReconciler, client.Client) {
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(newScheme()).
+		WithObjects(objects...).
+		WithStatusSubresource(&gatewayv1.Gateway{}).
+		Build()
+
+	return &GatewayReconciler{
+		Client:         fakeClient,
+		Scheme:         newScheme(),
+		ControllerName: testControllerName,
+		TemplatePath:   "../../../config/templates",
+	}, fakeClient
+}
+
+func assertGatewayAccepted(t *testing.T, fakeClient client.Client, gw *gatewayv1.Gateway) {
+	fetched := &gatewayv1.Gateway{}
+	err := fakeClient.Get(context.Background(), types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}, fetched)
+	assert.NoError(t, err)
+
+	// Check Accepted condition
+	var acceptedCondition *metav1.Condition
+	for i := range fetched.Status.Conditions {
+		if fetched.Status.Conditions[i].Type == string(gatewayv1.GatewayConditionAccepted) {
+			acceptedCondition = &fetched.Status.Conditions[i]
+			break
+		}
+	}
+
+	assert.NotNil(t, acceptedCondition, "Accepted condition should be set")
+	assert.Equal(t, metav1.ConditionTrue, acceptedCondition.Status)
+	assert.Equal(t, string(gatewayv1.GatewayReasonAccepted), acceptedCondition.Reason)
+}
+
+func TestGatewayReconciler_Reconcile(t *testing.T) {
+	t.Run("Reconcile_ManagedGateway_SetsAcceptedStatus", func(t *testing.T) {
+		gwClass := newGatewayClass(testControllerName)
+		gw := newGateway(gwClass.Name)
+
+		reconciler, fakeClient := setupReconciler(gwClass, gw)
+
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}}
+		result, err := reconciler.Reconcile(context.Background(), request)
+
+		assert.NoError(t, err)
+		assert.Equal(t, ctrl.Result{}, result)
+
+		assertGatewayAccepted(t, fakeClient, gw)
 	})
-})
+
+	t.Run("Reconcile_UnmanagedGateway_DoesNotSetStatus", func(t *testing.T) {
+		gwClass := newGatewayClass("other-controller")
+		gw := newGateway(gwClass.Name)
+
+		reconciler, fakeClient := setupReconciler(gwClass, gw)
+
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}}
+		result, err := reconciler.Reconcile(context.Background(), request)
+
+		assert.NoError(t, err)
+		assert.Equal(t, ctrl.Result{}, result)
+
+		// Verify no status was set (fake client doesn't apply CRD defaults)
+		fetched := &gatewayv1.Gateway{}
+		err = fakeClient.Get(context.Background(), types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}, fetched)
+		assert.NoError(t, err)
+		assert.Empty(t, fetched.Status.Conditions)
+	})
+
+	t.Run("Reconcile_MissingGatewayClass_DoesNotSetStatus", func(t *testing.T) {
+		gw := newGateway("nonexistent-class")
+
+		reconciler, fakeClient := setupReconciler(gw)
+
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}}
+		result, err := reconciler.Reconcile(context.Background(), request)
+
+		assert.NoError(t, err)
+		assert.Equal(t, ctrl.Result{}, result)
+
+		// Verify no status was set
+		fetched := &gatewayv1.Gateway{}
+		err = fakeClient.Get(context.Background(), types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}, fetched)
+		assert.NoError(t, err)
+		assert.Empty(t, fetched.Status.Conditions)
+	})
+
+	t.Run("Reconcile_GatewayDeleted_ReturnsWithoutError", func(t *testing.T) {
+		// Gateway not in API server (already deleted via ownerReference GC)
+		reconciler, _ := setupReconciler()
+
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: "deleted-gw", Namespace: "default"}}
+		result, err := reconciler.Reconcile(context.Background(), request)
+
+		// Should return without error (client.IgnoreNotFound)
+		assert.NoError(t, err)
+		assert.Equal(t, ctrl.Result{}, result)
+	})
+
+	t.Run("Reconcile_OwnershipTransfer_ResetsAccepted", func(t *testing.T) {
+		// Gateway initially managed by this controller
+		gwClass := newGatewayClass(testControllerName)
+		gw := newGateway(gwClass.Name)
+		reconciler, fakeClient := setupReconciler(gwClass, gw)
+
+		gw.Status.Conditions = []metav1.Condition{
+			{
+				Type:    string(gatewayv1.GatewayConditionAccepted),
+				Status:  metav1.ConditionTrue,
+				Reason:  string(gatewayv1.GatewayReasonAccepted),
+				Message: reconciler.acceptedMessage(),
+			},
+		}
+		err := fakeClient.Status().Update(context.Background(), gw)
+		assert.NoError(t, err)
+
+		// Create another GatewayClass
+		otherGwClass := newGatewayClass("other-controller")
+		otherGwClass.Name = "other-class"
+		err = fakeClient.Create(context.Background(), otherGwClass)
+		assert.NoError(t, err)
+
+		// Change gatewayClassName to transfer ownership
+		gw.Spec.GatewayClassName = gatewayv1.ObjectName(otherGwClass.Name)
+		err = fakeClient.Update(context.Background(), gw)
+		assert.NoError(t, err)
+
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}}
+		result, err := reconciler.Reconcile(context.Background(), request)
+
+		assert.NoError(t, err)
+		assert.Equal(t, ctrl.Result{}, result)
+
+		// Verify Accepted was reset to Unknown
+		fetched := &gatewayv1.Gateway{}
+		err = fakeClient.Get(context.Background(), types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}, fetched)
+		assert.NoError(t, err)
+
+		var acceptedCondition *metav1.Condition
+		for i := range fetched.Status.Conditions {
+			if fetched.Status.Conditions[i].Type == string(gatewayv1.GatewayConditionAccepted) {
+				acceptedCondition = &fetched.Status.Conditions[i]
+				break
+			}
+		}
+
+		assert.NotNil(t, acceptedCondition)
+		assert.Equal(t, metav1.ConditionUnknown, acceptedCondition.Status)
+		assert.Equal(t, string(gatewayv1.GatewayReasonPending), acceptedCondition.Reason)
+	})
+}

@@ -6,3 +6,6 @@
     valueFrom:
       fieldRef:
         fieldPath: metadata.namespace
+  # LB ServiceAccount name (will be replaced by Kustomize with actual prefixed name)
+  - name: MERIDIO_LB_SERVICE_ACCOUNT
+    value: stateless-load-balancer

@@ -95,7 +95,13 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
-        volumeMounts: []
-      volumes: []
+        volumeMounts:
+        - name: templates
+          mountPath: /templates
+          readOnly: true
+      volumes:
+      - name: templates
+        configMap:
+          name: stateless-load-balancer-templates
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

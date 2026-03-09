@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stateless-load-balancer
+  namespace: placeholder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stateless-load-balancer
+  template:
+    metadata:
+      labels:
+        app: stateless-load-balancer
+    spec:
+      serviceAccountName: stateless-load-balancer
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - stateless-load-balancer
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - name: loadbalancer
+        # TODO: Replace with actual image when loadbalancer controller is implemented
+        # image: registry.nordix.org/cloud-native/meridio-2/loadbalancer:latest
+        image: registry.k8s.io/pause:3.9
+        # args:
+        # - run
+        # - --namespace=$(NAMESPACE)
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      - name: router
+        # TODO: Replace with actual image when router controller is implemented
+        # image: registry.nordix.org/cloud-native/meridio-2/router:latest
+        image: registry.k8s.io/pause:3.9
+        # args:
+        # - run
+        # - --namespace=$(NAMESPACE)
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
