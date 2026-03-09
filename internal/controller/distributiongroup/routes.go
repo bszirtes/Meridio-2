@@ -53,6 +53,19 @@ func (r *DistributionGroupReconciler) findDGsReferencingGateways(ctx context.Con
 		// Check if route references any of the target Gateways
 		referencesGateway := false
 		for _, parentRef := range route.Spec.ParentRefs {
+			// Check if parentRef is a Gateway
+			group := gatewayv1.GroupName
+			if parentRef.Group != nil {
+				group = string(*parentRef.Group)
+			}
+			kind := kindGateway
+			if parentRef.Kind != nil {
+				kind = string(*parentRef.Kind)
+			}
+			if group != gatewayv1.GroupName || kind != kindGateway {
+				continue
+			}
+
 			ns := route.Namespace
 			if parentRef.Namespace != nil {
 				ns = string(*parentRef.Namespace)
@@ -90,6 +103,19 @@ func (r *DistributionGroupReconciler) findDGsReferencingGateways(ctx context.Con
 
 		// Check direct parentRef
 		for _, parentRef := range dg.Spec.ParentRefs {
+			// Verify parentRef is a Gateway (DG API enforces this via CEL, but be defensive)
+			group := gatewayv1.GroupName
+			if parentRef.Group != nil {
+				group = *parentRef.Group
+			}
+			kind := kindGateway
+			if parentRef.Kind != nil {
+				kind = *parentRef.Kind
+			}
+			if group != gatewayv1.GroupName || kind != kindGateway {
+				continue
+			}
+
 			ns := dg.Namespace
 			if parentRef.Namespace != nil {
 				ns = *parentRef.Namespace

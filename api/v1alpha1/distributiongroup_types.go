@@ -53,9 +53,20 @@ type ParentReference struct {
 
 // MaglevConfig defines the parameters for the Maglev hashing.
 type MaglevConfig struct {
-	// MaxEndpoints is the table capacity. This is currently immutable because
-	// changing the capacity causes a complete reshuffle of the lookup table,
-	// disrupting all active connections.
+	// MaxEndpoints is the table capacity. This field is immutable after creation.
+	//
+	// Immutability rationale:
+	// - Maglev IDs are assigned per DistributionGroup and per IP family (IPv4/IPv6)
+	// - The same Pod IP may have different Maglev IDs in different DistributionGroups
+	// - Changing MaxEndpoints causes Maglev hash table reshuffle, potentially reassigning
+	//   IDs for many endpoints and disrupting active connections for this DistributionGroup
+	// - The LoadBalancer controller uses ID offsets per DistributionGroup to differentiate
+	//   target IP routes (fwmark = offset + maglev_id). Changing MaxEndpoints could cause
+	//   fwmark collisions with other DistributionGroups, requiring offset reallocation
+	//   for all DGs managed by the LoadBalancer (or fixed spacing like 1024 to prevent this)
+	//
+	// To change capacity, create a new DistributionGroup with the desired MaxEndpoints.
+	//
 	// +kubebuilder:default=32
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="MaxEndpoints is immutable"

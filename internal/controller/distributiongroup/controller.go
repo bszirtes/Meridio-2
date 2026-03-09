@@ -35,6 +35,7 @@ package distributiongroup
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -96,9 +97,11 @@ func (r *DistributionGroupReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// 2. Check if being deleted (ownerReferences handle cleanup automatically)
+	// 2. Verify no finalizers (design decision: use ownerReferences only)
 	if !dg.DeletionTimestamp.IsZero() {
-		log.Info("DistributionGroup is being deleted, skipping reconciliation")
+		err := fmt.Errorf("distributionGroup %s/%s has DeletionTimestamp set but controller uses no finalizers (finalizers: %v) - resource may be stuck in Terminating state",
+			dg.Namespace, dg.Name, dg.Finalizers)
+		log.Error(err, "unexpected state detected - skipping reconciliation to avoid retry loop")
 		return ctrl.Result{}, nil
 	}
 
