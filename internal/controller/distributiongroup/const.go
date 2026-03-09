@@ -35,6 +35,7 @@ const (
 
 	// Kubernetes resource kinds
 	kindPod                  = "Pod"
+	kindGateway              = "Gateway"
 	kindGatewayConfiguration = "GatewayConfiguration"
 	kindService              = "Service"
 	kindDistributionGroup    = "DistributionGroup"

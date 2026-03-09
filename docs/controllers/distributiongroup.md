@@ -84,6 +84,15 @@ Only process Gateways with `Accepted=True` condition set by the Gateway controll
 - Resolving `gatewayClassName` references
 - Checking `controllerName` matches
 
+**Why check Accepted condition:**
+- Gateway controller sets `Accepted=True` when Gateway is valid and managed by our controller
+- Per GEP-1364: `Accepted=True` means Gateway is semantically/syntactically valid and will produce data plane config
+- Filtering by `Accepted=True` ensures we only process Gateways that:
+  - Have valid GatewayClass reference
+  - Have valid GatewayConfiguration (mandatory parametersRef)
+  - Are managed by our controller (not another implementation)
+- Gateways without `Accepted=True` are ignored (no network context extracted, no EndpointSlices created)
+
 ### 5. Extract Network Contexts
 For each accepted Gateway:
 - Fetch referenced GatewayConfiguration
@@ -107,9 +116,28 @@ For each network context:
 - Sort new Pods by CreationTimestamp (deterministic assignment)
 - Enforce capacity limit: exclude Pods beyond `maxEndpoints`
 
-**Note:** Maglev IDs are scoped per DistributionGroup and per network context. A Pod may have different IDs in different scenarios:
-- Same Pod in multiple networks: Pod-A might be ID `5` in `192.168.1.0/24` and ID `12` in `2001:db8::/64`
-- Same Pod in multiple DistributionGroups: Pod-A might be ID `3` in DG-1 and ID `7` in DG-2 (even for the same network)
+**Maglev ID Scoping:**
+
+Maglev IDs are scoped **per DistributionGroup** and **per network context**. A Pod may have different IDs in different scenarios:
+
+- **Same Pod, different networks**: Pod-A might be ID `5` in `192.168.1.0/24` (IPv4) and ID `12` in `2001:db8::/64` (IPv6)
+- **Same Pod, different DistributionGroups**: Pod-A might be ID `3` in DG-1 and ID `7` in DG-2 (even for the same network)
+
+**Why this matters for the LoadBalancer controller:**
+
+The LoadBalancer controller uses **ID offsets per DistributionGroup** to differentiate target IP routes:
+- Each DistributionGroup gets a unique ID offset (e.g., DG-1: offset 0, DG-2: offset 1024)
+- Routes are created with fwmarks: `fwmark = offset + maglev_id`
+- When NFQLB marks a packet based on distribution decision, the fwmark determines which route (and thus which endpoint) receives the packet
+- Changing `maxEndpoints` would:
+  - Cause Maglev hash table reshuffle, potentially reassigning IDs for many endpoints
+  - Risk fwmark collisions with other DistributionGroups (e.g., if DG-1 grows from 32 to 128 endpoints, fwmarks 100-127 might collide with DG-2's range)
+  - Require offset reallocation for all DGs (unless fixed spacing like 1024 is used)
+  - Break active connections for this DG and potentially others
+
+**Immutability enforcement:**
+
+`maxEndpoints` is immutable (enforced via CEL validation). To change capacity, create a new DistributionGroup.
 
 ### 8. Create EndpointSlices
 **Per network context:**
@@ -188,6 +216,88 @@ The controller reconciles when:
 | Node | Create/Update/Delete | Topology hints (optional) |
 
 **Note:** Gateway watch includes early filtering - only Gateways with `Accepted=True` trigger reconciliation.
+
+### Why Watch GatewayConfiguration Directly?
+
+**The GatewayConfiguration watch is necessary for performance**, not redundant with the Gateway watch.
+
+**Scenario 1: Valid GatewayConfiguration update (valid → valid)**
+```yaml
+# User adds IPv6 network to existing config
+GatewayConfiguration:
+  spec:
+    networkSubnets:
+    - cidrs: ["192.168.1.0/24", "2001:db8::/64"]  # IPv6 added
+```
+
+**Without GatewayConfiguration watch:**
+1. GatewayConfiguration updated (valid → valid)
+2. Gateway controller reconciles
+3. Gateway stays `Accepted=True` (no status change!)
+4. Gateway watch doesn't trigger (no event)
+5. **DG never learns about new network** ❌
+
+**With GatewayConfiguration watch:**
+1. GatewayConfiguration updated
+2. DG GatewayConfiguration mapper triggers immediately ✅
+3. DG reconciles, discovers new network
+4. Creates EndpointSlices for IPv6
+
+**Scenario 2: Invalid GatewayConfiguration update (valid → invalid) - Race Condition**
+```yaml
+# User breaks config
+GatewayConfiguration:
+  spec:
+    networkSubnets: []  # Empty - invalid!
+```
+
+**Race condition:**
+1. GatewayConfiguration updated (becomes invalid)
+2. **DG GatewayConfiguration mapper triggers** (sees Gateway still has `Accepted=True`)
+3. **DG reconciles with invalid config** ❌
+4. Gateway controller reconciles (later)
+5. Gateway sets `Accepted=False`
+6. DG Gateway mapper triggers, reconciles again
+
+**Impact:**
+- DG might process invalid GatewayConfiguration briefly
+- `getNetworkContexts()` returns empty map (no valid CIDRs)
+- DG deletes all EndpointSlices (no network contexts)
+- Gateway watch provides eventual consistency
+- **Result: Temporary disruption, but eventually consistent** ⚠️
+
+**Scenario 3: Fixed GatewayConfiguration (invalid → valid) - Race Condition**
+```yaml
+# User fixes config
+GatewayConfiguration:
+  spec:
+    networkSubnets:
+    - cidrs: ["192.168.1.0/24"]  # Fixed!
+```
+
+**Race condition:**
+1. GatewayConfiguration updated (becomes valid)
+2. **DG GatewayConfiguration mapper triggers** (sees Gateway still has `Accepted=False`)
+3. **DG skips reconciliation** (Gateway not accepted yet) ❌
+4. Gateway controller reconciles (later)
+5. Gateway sets `Accepted=True`
+6. **DG Gateway mapper triggers** (Gateway status changed) ✅
+7. DG processes valid config, creates EndpointSlices
+
+**Impact:**
+- DG GatewayConfiguration mapper fires too early (before Gateway validates)
+- DG skips processing (Gateway still shows `Accepted=False`)
+- Gateway watch provides eventual consistency (triggers when `Accepted=True` is set)
+- **Result: Slight delay, but eventually consistent** ✅
+
+**Trade-off summary:**
+- ✅ Fast response to valid config changes (Scenario 1)
+- ✅ No missed events
+- ⚠️ Brief disruption possible (Scenario 2: invalid config processed before Gateway marks it)
+- ⚠️ Slight delay possible (Scenario 3: GatewayConfiguration mapper fires before Gateway validates)
+- ✅ Eventual consistency guaranteed via Gateway watch
+
+**Conclusion: GatewayConfiguration watch is mandatory** - Without it, valid config updates (Scenario 1) would be missed entirely since Gateway status doesn't change. The race conditions in Scenarios 2 and 3 are acceptable trade-offs for correctness and responsiveness.
 
 ## Maglev Implementation
 
@@ -289,6 +399,13 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: meridio-2
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: meridio-2
+spec:
+  controllerName: registry.nordix.org/cloud-native/meridio-2/gateway-controller
 ---
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition

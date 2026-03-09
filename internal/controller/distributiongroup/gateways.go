@@ -71,6 +71,19 @@ func (r *DistributionGroupReconciler) listReferencedGateways(ctx context.Context
 
 // getGatewayFromParentRef fetches a Gateway from a ParentReference
 func (r *DistributionGroupReconciler) getGatewayFromParentRef(ctx context.Context, ref meridio2v1alpha1.ParentReference, localNs string) (*gatewayv1.Gateway, error) {
+	// Verify parentRef is a Gateway (DG API enforces this via CEL, but be defensive)
+	group := gatewayv1.GroupName
+	if ref.Group != nil {
+		group = *ref.Group
+	}
+	kind := kindGateway
+	if ref.Kind != nil {
+		kind = *ref.Kind
+	}
+	if group != gatewayv1.GroupName || kind != kindGateway {
+		return nil, nil
+	}
+
 	ns := localNs
 	if ref.Namespace != nil {
 		ns = *ref.Namespace
