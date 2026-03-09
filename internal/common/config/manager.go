@@ -40,6 +40,12 @@ type ManagerConfig struct {
 	// Features
 	EnableTopologyHints bool
 
+	// Templates
+	TemplatePath string
+
+	// ServiceAccounts
+	LBServiceAccount string
+
 	// Certificates
 	WebhookPort     int
 	WebhookCertPath string
@@ -70,6 +76,10 @@ func (c *ManagerConfig) AddFlags(fs *pflag.FlagSet) {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	fs.BoolVar(&c.EnableTopologyHints, "enable-topology-hints", false,
 		"Enable Node watching for topology-aware endpoint hints. Requires RBAC permissions for nodes.")
+	fs.StringVar(&c.TemplatePath, "template-path", "/templates",
+		"Path to template directory containing deployment templates.")
+	fs.StringVar(&c.LBServiceAccount, "lb-service-account", "stateless-load-balancer",
+		"ServiceAccount name for LB Deployment pods.")
 	fs.IntVar(&c.WebhookPort, "webhook-port", 9443,
 		"The port the webhook server binds to.")
 	fs.StringVar(&c.WebhookCertPath, "webhook-cert-path", "",
@@ -99,6 +109,8 @@ func (c *ManagerConfig) BindEnv(fs *pflag.FlagSet) {
 	bindBool(fs, "metrics-secure", "MERIDIO_METRICS_SECURE", &c.SecureMetrics)
 	bindBool(fs, "enable-http2", "MERIDIO_ENABLE_HTTP2", &c.EnableHTTP2)
 	bindBool(fs, "enable-topology-hints", "MERIDIO_ENABLE_TOPOLOGY_HINTS", &c.EnableTopologyHints)
+	bindString(fs, "template-path", "MERIDIO_TEMPLATE_PATH", &c.TemplatePath)
+	bindString(fs, "lb-service-account", "MERIDIO_LB_SERVICE_ACCOUNT", &c.LBServiceAccount)
 	bindInt(fs, "webhook-port", "MERIDIO_WEBHOOK_PORT", &c.WebhookPort)
 	bindString(fs, "webhook-cert-path", "MERIDIO_WEBHOOK_CERT_PATH", &c.WebhookCertPath)
 	bindString(fs, "webhook-cert-name", "MERIDIO_WEBHOOK_CERT_NAME", &c.WebhookCertName)

@@ -18,40 +18,146 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	gatewaynetworkingk8siov1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // GatewayReconciler reconciles a Gateway object
 type GatewayReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	ControllerName string
+	Scheme           *runtime.Scheme
+	ControllerName   string
+	Namespace        string // Namespace to watch (empty = all namespaces)
+	TemplatePath     string // Path to template directory (defaults to /templates)
+	LBServiceAccount string // ServiceAccount name for LB Deployment pods
 }
 
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways/finalizers,verbs=update
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=meridio-2.nordix.org,resources=l34routes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=meridio-2.nordix.org,resources=gatewayconfigurations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Gateway object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
+// Reconcile manages Gateway lifecycle
 func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	log.Info("reconciling Gateway", "name", req.Name, "namespace", req.Namespace)
+	// 1. Fetch Gateway
+	var gw gatewayv1.Gateway
+	if err := r.Get(ctx, req.NamespacedName, &gw); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	// TODO(user): your logic here
+	// 2. Verify no finalizers (design decision: use ownerReferences only)
+	if !gw.DeletionTimestamp.IsZero() {
+		err := fmt.Errorf("gateway %s/%s has DeletionTimestamp set but controller uses no finalizers (finalizers: %v) - resource may be stuck in Terminating state",
+			gw.Namespace, gw.Name, gw.Finalizers)
+		log.Error(err, "unexpected state detected - skipping reconciliation to avoid retry loop")
+		return ctrl.Result{}, nil
+	}
+
+	// 3. Check if we should manage this Gateway (via GatewayClass)
+	shouldManage, err := r.shouldManageGateway(ctx, &gw)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if !shouldManage {
+		// Gateway is not managed by this controller (different GatewayClass).
+		// This covers two cases:
+		// 1. Gateway was never managed by us (different GatewayClass from the start)
+		// 2. Gateway ownership transferred (user changed gatewayClassName)
+		//
+		// We cannot reliably distinguish between these cases, but we can check if
+		// we previously set the Accepted condition and reset it to default if so.
+		//
+		// The LB Deployment (when we implement it) will have an ownerReference to
+		// the Gateway, so:
+		// - If Gateway is deleted → Kubernetes GC deletes Deployment
+		// - If ownership transfers → new controller can delete/replace Deployment
+		//
+		// Gateway API strongly discourages changing gatewayClassName, so we don't
+		// over-invest in this edge case.
+		if isGatewayAcceptedByController(&gw, r.ControllerName) {
+			log.Info("Gateway no longer managed by this controller, resetting Accepted status",
+				"gatewayClass", gw.Spec.GatewayClassName)
+
+			// Reset Accepted to default (best effort)
+			// We keep Programmed as-is since it reflects actual data plane state
+			if err := r.updateAcceptedStatus(ctx, &gw, metav1.ConditionUnknown, string(gatewayv1.GatewayReasonPending), messageWaitingForController); err != nil {
+				if apierrors.IsConflict(err) {
+					// Another controller might be taking over, that's fine
+					return ctrl.Result{}, nil
+				}
+				log.Error(err, "failed to reset Accepted status")
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 4. Validate GatewayConfiguration (infrastructure.parametersRef)
+	// TODO: Fetch and validate GatewayConfiguration
+	// - If missing/invalid → set Accepted=False, reason: InvalidParameters
+	// - GatewayConfiguration is a mandatory reference per Gateway API conventions
+	// - Must resolve before Gateway can be accepted
+
+	// 5. Set Accepted status condition
+	// TODO: Only set Accepted=True after GatewayConfiguration validation passes
+	if err := r.updateAcceptedStatus(ctx, &gw, metav1.ConditionTrue, string(gatewayv1.GatewayReasonAccepted), r.acceptedMessage()); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// 6. Update status.addresses from L34Routes
+	if err := r.updateAddressesFromRoutes(ctx, &gw); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// 7. Reconcile LB Deployment
+	if err := r.reconcileLBDeployment(ctx, &gw); err != nil {
+		// Handle transient errors (requeue without setting Programmed=False)
+		if apierrors.IsConflict(err) || apierrors.IsAlreadyExists(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+
+		// Set Programmed=False only for permanent errors (name collision, create failure)
+		var permErr *permanentDeploymentError
+		if errors.As(err, &permErr) {
+			if statusErr := r.updateProgrammedStatus(ctx, &gw, metav1.ConditionFalse,
+				string(gatewayv1.GatewayReasonInvalid), err.Error()); statusErr != nil {
+				if apierrors.IsConflict(statusErr) {
+					return ctrl.Result{Requeue: true}, nil
+				}
+			}
+		}
+		return ctrl.Result{}, err
+	}
+
+	// 8. Set Programmed status condition
+	if err := r.updateProgrammedStatus(ctx, &gw, metav1.ConditionTrue,
+		string(gatewayv1.GatewayReasonProgrammed), messageProgrammed); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -59,7 +165,11 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // SetupWithManager sets up the controller with the Manager.
 func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&gatewaynetworkingk8siov1.Gateway{}).
+		For(&gatewayv1.Gateway{}).
+		Owns(&appsv1.Deployment{}).
+		Watches(&gatewayv1.GatewayClass{}, handler.EnqueueRequestsFromMapFunc(r.mapGatewayClassToGateway)).
+		Watches(&meridio2v1alpha1.L34Route{}, handler.EnqueueRequestsFromMapFunc(r.mapL34RouteToGateway)).
+		Watches(&meridio2v1alpha1.GatewayConfiguration{}, handler.EnqueueRequestsFromMapFunc(r.mapGatewayConfigToGateway)).
 		Named("gateway").
 		Complete(r)
 }

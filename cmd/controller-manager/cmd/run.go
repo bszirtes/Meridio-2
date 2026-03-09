@@ -166,9 +166,12 @@ func runManager(cfg *config.ManagerConfig) error {
 	}
 
 	if err = (&gateway.GatewayReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		ControllerName: cfg.ControllerName,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		ControllerName:   cfg.ControllerName,
+		Namespace:        cfg.Namespace,
+		TemplatePath:     cfg.TemplatePath,
+		LBServiceAccount: cfg.LBServiceAccount,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Gateway")
 		return err
