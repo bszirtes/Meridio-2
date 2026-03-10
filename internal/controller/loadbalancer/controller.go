@@ -30,8 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
+	nftablesmanager "github.com/nordix/meridio-2/internal/nftables"
 )
 
 // Controller reconciles DistributionGroup resources to manage NFQLB instances.
@@ -52,6 +54,8 @@ import (
 // - Clear lifecycle: NFQLB instance lifecycle tied to DistributionGroup
 // - Architectural consistency: Matches Service/kube-proxy pattern
 // - Gateway filtering: Only reconciles DistributionGroups for this Gateway
+// - Shared nftables: Single table for all DGs prevents packet re-injection
+// - VIPs from Gateway: Gateway.status.addresses provides dynamic VIP set
 type Controller struct {
 	client.Client
 	Scheme            *runtime.Scheme
@@ -61,11 +65,11 @@ type Controller struct {
 	NFTConn           *nftables.Conn
 	NFTTable          *nftables.Table
 	NFTChain          *nftables.Chain
-	NftManagerFactory func(distGroupName string, queueNum, queueTotal uint16) (nftablesManager, error)
+	NftManagerFactory func(queueNum, queueTotal uint16) (nftablesManager, error)
 
 	mu             sync.Mutex
 	instances      map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
-	nftManagers    map[string]nftablesManager                       // key: DistributionGroup name
+	nftManager     nftablesManager                                  // Shared nftables manager for all DGs
 	routingManager *RoutingManager                                  // Manages policy routing for all targets
 	targets        map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
 	flows          map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
@@ -135,8 +139,6 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	// TODO: Write readiness file
-
 	return ctrl.Result{}, nil
 }
 
@@ -159,13 +161,7 @@ func (c *Controller) cleanupDistributionGroup(ctx context.Context, distGroupName
 		delete(c.flows, distGroupName)
 	}
 
-	// Cleanup nftables
-	if nftMgr, exists := c.nftManagers[distGroupName]; exists {
-		if err := nftMgr.Cleanup(); err != nil {
-			logr.Error(err, "Failed to cleanup nftables", "distGroup", distGroupName)
-		}
-		delete(c.nftManagers, distGroupName)
-	}
+	// Note: nftables manager is shared, not cleaned up per-DG
 
 	// Remove readiness file
 	if err := c.removeReadinessFile(distGroupName); err != nil {
@@ -224,9 +220,62 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 	return false
 }
 
+// gatewayEnqueue enqueues reconcile requests for all DistributionGroups when Gateway status changes
+func (c *Controller) gatewayEnqueue(ctx context.Context, obj client.Object) []ctrl.Request {
+	// Only process our Gateway
+	if obj.GetName() != c.GatewayName || obj.GetNamespace() != c.GatewayNamespace {
+		return nil
+	}
+
+	// List all DistributionGroups
+	dgList := &meridio2v1alpha1.DistributionGroupList{}
+	if err := c.List(ctx, dgList); err != nil {
+		return nil
+	}
+
+	// Enqueue all DGs that reference this Gateway
+	requests := []ctrl.Request{}
+	for _, dg := range dgList.Items {
+		for _, parentRef := range dg.Spec.ParentRefs {
+			namespace := dg.Namespace
+			if parentRef.Namespace != nil {
+				namespace = *parentRef.Namespace
+			}
+
+			if parentRef.Name == c.GatewayName && namespace == c.GatewayNamespace {
+				requests = append(requests, ctrl.Request{
+					NamespacedName: client.ObjectKey{
+						Name:      dg.Name,
+						Namespace: dg.Namespace,
+					},
+				})
+				break
+			}
+		}
+	}
+
+	return requests
+}
+
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	// Initialize routing manager
 	c.routingManager = NewRoutingManager()
+
+	// Initialize shared nftables manager
+	var err error
+	if c.NftManagerFactory != nil {
+		c.nftManager, err = c.NftManagerFactory(0, 4)
+	} else {
+		c.nftManager, err = nftablesmanager.NewManager(0, 4)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create nftables manager: %w", err)
+	}
+
+	// Setup shared nftables table
+	if err := c.nftManager.Setup(); err != nil {
+		return fmt.Errorf("failed to setup nftables: %w", err)
+	}
 
 	// Clean up readiness directory on startup
 	if err := c.cleanupReadinessDir(); err != nil {
@@ -237,6 +286,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		For(&meridio2v1alpha1.DistributionGroup{}).
 		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(c.endpointSliceEnqueue)).
 		Watches(&meridio2v1alpha1.L34Route{}, handler.EnqueueRequestsFromMapFunc(c.l34RouteEnqueue)).
+		Watches(&gatewayv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(c.gatewayEnqueue)).
 		Named("loadbalancer").
 		Complete(c)
 }

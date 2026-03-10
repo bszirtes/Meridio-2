@@ -137,10 +137,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 			GatewayNamespace: namespace,
 			LBFactory:        mockFactory,
 			routingManager:   NewMockRoutingManager(),
-			NftManagerFactory: func(distGroupName string, queueNum, queueTotal uint16) (nftablesManager, error) {
+			NftManagerFactory: func(queueNum, queueTotal uint16) (nftablesManager, error) {
 				return newMockNftablesManager(), nil
 			},
 		}
+
+		// Initialize shared nftManager
+		var err error
+		controller.nftManager, err = controller.NftManagerFactory(0, 4)
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	Describe("belongsToGateway", func() {
@@ -695,9 +700,23 @@ var _ = Describe("LoadBalancer Controller", func() {
 				},
 			}
 
+			// Create Gateway with VIPs in status
+			ipAddrType := gatewayv1.IPAddressType
+			gateway := &gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      gatewayName,
+					Namespace: namespace,
+				},
+				Status: gatewayv1.GatewayStatus{
+					Addresses: []gatewayv1.GatewayStatusAddress{
+						{Type: &ipAddrType, Value: "20.0.0.1"},
+					},
+				},
+			}
+
 			fakeClient = fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(distGroup, endpointSlice, l34route).
+				WithObjects(distGroup, endpointSlice, l34route, gateway).
 				Build()
 			controller.Client = fakeClient
 
@@ -807,9 +826,24 @@ var _ = Describe("LoadBalancer Controller", func() {
 				},
 			}
 
+			// Create Gateway with VIPs in status
+			ipAddrType := gatewayv1.IPAddressType
+			gateway := &gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      gatewayName,
+					Namespace: namespace,
+				},
+				Status: gatewayv1.GatewayStatus{
+					Addresses: []gatewayv1.GatewayStatusAddress{
+						{Type: &ipAddrType, Value: "20.0.0.1"},
+						{Type: &ipAddrType, Value: "20.0.0.2"},
+					},
+				},
+			}
+
 			fakeClient = fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(distGroup, endpointSlice, l34route1, l34route2).
+				WithObjects(distGroup, endpointSlice, l34route1, l34route2, gateway).
 				Build()
 			controller.Client = fakeClient
 
@@ -1204,9 +1238,6 @@ var _ = Describe("LoadBalancer Controller", func() {
 			if controller.instances == nil {
 				controller.instances = make(map[string]types.NFQueueLoadBalancer)
 			}
-			if controller.nftManagers == nil {
-				controller.nftManagers = make(map[string]nftablesManager)
-			}
 			if controller.flows == nil {
 				controller.flows = make(map[string]map[string]*meridio2v1alpha1.L34Route)
 			}
@@ -1215,7 +1246,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 			}
 
 			controller.instances[distGroup.Name] = mockInstance
-			controller.nftManagers[distGroup.Name] = mockNftMgr
+			controller.nftManager = mockNftMgr // Use shared manager
 			controller.flows[distGroup.Name] = make(map[string]*meridio2v1alpha1.L34Route)
 			controller.targets[distGroup.Name] = make(map[int][]string)
 
@@ -1235,7 +1266,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 
 			// Verify all state cleaned up
 			Expect(controller.instances).ToNot(HaveKey(distGroup.Name))
-			Expect(controller.nftManagers).ToNot(HaveKey(distGroup.Name))
+			// Note: nftManager is shared, not cleaned up per-DG
 			Expect(controller.flows).ToNot(HaveKey(distGroup.Name))
 			Expect(controller.targets).ToNot(HaveKey(distGroup.Name))
 		})

@@ -20,7 +20,6 @@ import (
 	"context"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
-	"github.com/nordix/meridio-2/internal/nftables"
 	"github.com/nordix/meridio/pkg/loadbalancer/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -37,9 +36,6 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 	// Initialize maps if needed
 	if c.instances == nil {
 		c.instances = make(map[string]types.NFQueueLoadBalancer)
-	}
-	if c.nftManagers == nil {
-		c.nftManagers = make(map[string]nftablesManager)
 	}
 	if c.targets == nil {
 		c.targets = make(map[string]map[int][]string)
@@ -59,36 +55,18 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 	}
 	m := n * 100
 
-	// Create nftables manager
-	var nftMgr nftablesManager
-	var err error
-	if c.NftManagerFactory != nil {
-		nftMgr, err = c.NftManagerFactory(distGroup.Name, 0, 4)
-	} else {
-		nftMgr, err = nftables.NewManager(distGroup.Name, 0, 4)
-	}
-	if err != nil {
-		return err
-	}
-	if err := nftMgr.Setup(); err != nil {
-		return err
-	}
-
 	// Create NFQLB instance
 	instance, err := c.LBFactory.New(distGroup.Name, int(m), int(n))
 	if err != nil {
-		_ = nftMgr.Cleanup() // Cleanup nftables on error
 		return err
 	}
 
 	// Start the instance
 	if err := instance.Start(); err != nil {
-		_ = nftMgr.Cleanup() // Cleanup nftables on error
 		return err
 	}
 
 	c.instances[distGroup.Name] = instance
-	c.nftManagers[distGroup.Name] = nftMgr
 	c.targets[distGroup.Name] = make(map[int][]string)
 
 	logr.Info("Created NFQLB instance", "distGroup", distGroup.Name, "M", m, "N", n)

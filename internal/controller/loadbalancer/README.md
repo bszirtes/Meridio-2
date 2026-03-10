@@ -117,20 +117,25 @@ For each DistributionGroup:
 - Activates new targets: `instance.Activate(identifier, identifier)`
 - Deactivates removed targets: `instance.Deactivate(identifier)`
 
-### 3. Flow Configuration (TODO)
+### 3. Flow Configuration
 
 - Configure NFQLB flows from L34Routes
 - Map VIPs, protocols, ports, and priorities
+- Flows define traffic classification rules for load balancing
 
-### 4. nftables Rules (TODO)
+### 4. nftables Rules
 
-- Add VIP rules to queue traffic to nfqueue
-- Add ICMP rules for VIP reachability
+- Single shared nftables table (`meridio-lb`) for all DistributionGroups
+- VIPs extracted from Gateway.status.addresses
+- Queue traffic matching VIPs to nfqueue for NFQLB processing
+- Prevents packet re-injection with overlapping VIPs across DGs
 
-### 5. Readiness Signaling (TODO)
+### 5. Readiness Signaling
 
 - Write readiness files: `/var/run/meridio/lb-ready-<distgroup>`
+- Created only when DistributionGroup has ready endpoints
 - Router container reads these to decide VIP advertisement
+- Cleanup on DistributionGroup deletion or endpoint unavailability
 
 ## References
 

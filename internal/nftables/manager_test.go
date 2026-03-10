@@ -23,10 +23,10 @@ import (
 )
 
 func TestNewManager(t *testing.T) {
-	mgr, err := NewManager("test-distgroup", 0, 4)
+	mgr, err := NewManager(0, 4)
 	assert.NoError(t, err)
 	assert.NotNil(t, mgr)
-	assert.Equal(t, "meridio-lb-test-distgroup", mgr.tableName)
+	assert.Equal(t, "meridio-lb", mgr.tableName)
 }
 
 func TestExtractVIPs(t *testing.T) {
