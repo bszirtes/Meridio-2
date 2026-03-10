@@ -63,11 +63,12 @@ type Controller struct {
 	NFTChain          *nftables.Chain
 	NftManagerFactory func(distGroupName string, queueNum, queueTotal uint16) (nftablesManager, error)
 
-	mu          sync.Mutex
-	instances   map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
-	nftManagers map[string]nftablesManager                       // key: DistributionGroup name
-	targets     map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
-	flows       map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
+	mu             sync.Mutex
+	instances      map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
+	nftManagers    map[string]nftablesManager                       // key: DistributionGroup name
+	routingManager *RoutingManager                                  // Manages policy routing for all targets
+	targets        map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
+	flows          map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
 }
 
 // nftablesManager interface for nftables operations
@@ -224,6 +225,9 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 }
 
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
+	// Initialize routing manager
+	c.routingManager = NewRoutingManager()
+
 	// Clean up readiness directory on startup
 	if err := c.cleanupReadinessDir(); err != nil {
 		return fmt.Errorf("failed to cleanup readiness directory: %w", err)
