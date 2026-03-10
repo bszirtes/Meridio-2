@@ -18,6 +18,7 @@ package loadbalancer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/google/nftables"
@@ -175,6 +176,11 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 }
 
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
+	// Clean up readiness directory on startup
+	if err := c.cleanupReadinessDir(); err != nil {
+		return fmt.Errorf("failed to cleanup readiness directory: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&meridio2v1alpha1.DistributionGroup{}).
 		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(c.endpointSliceEnqueue)).
