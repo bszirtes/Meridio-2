@@ -18,6 +18,7 @@ package loadbalancer
 
 import (
 	"context"
+	"hash/fnv"
 	"strconv"
 
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -27,7 +28,22 @@ import (
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 )
 
-const fwmarkOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
+const (
+	baseOffset       = 5000 // Base offset for all fwmarks
+	offsetMultiplier = 1024 // Offset multiplier per DistributionGroup
+)
+
+// getFwmarkOffset calculates the fwmark offset for a DistributionGroup
+// Formula: DistributionGroup_ID * 1024 + 5000
+// DistributionGroup_ID is derived from a hash of the DG name
+func getFwmarkOffset(distGroupName string) int {
+	// Generate stable ID from name using FNV hash
+	h := fnv.New32a()
+	h.Write([]byte(distGroupName))
+	dgID := int(h.Sum32() % 1024) // Limit to 0-1023 to prevent huge offsets
+
+	return dgID*offsetMultiplier + baseOffset
+}
 
 // reconcileTargets synchronizes NFQLB targets from EndpointSlices.
 func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) error {
@@ -40,6 +56,9 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	if !exists {
 		return nil
 	}
+
+	// Calculate fwmark offset for this DistributionGroup
+	fwmarkOffset := getFwmarkOffset(distGroup.Name)
 
 	// Get EndpointSlices for this DistributionGroup
 	endpointSliceList := &discoveryv1.EndpointSliceList{}
