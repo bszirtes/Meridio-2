@@ -49,10 +49,13 @@ type Manager struct {
 	conn        *nftables.Conn
 }
 
+const sharedTableName = "meridio-lb" // Shared table for all DistributionGroups
+
 // NewManager creates a new nftables manager.
-func NewManager(distGroupName string, queueNum, queueTotal uint16) (*Manager, error) {
+// Uses a single shared table for all DistributionGroups.
+func NewManager(queueNum, queueTotal uint16) (*Manager, error) {
 	return &Manager{
-		tableName:  fmt.Sprintf("meridio-lb-%s", distGroupName),
+		tableName:  sharedTableName,
 		queueNum:   queueNum,
 		queueTotal: queueTotal,
 		conn:       &nftables.Conn{},

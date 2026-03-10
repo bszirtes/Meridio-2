@@ -108,8 +108,12 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 		}
 	}
 
-	// Configure nftables AFTER flows are ready
-	vips := extractVIPs(successfulFlows)
+	// Configure nftables with VIPs from Gateway status
+	vips, err := c.getGatewayVIPs(ctx)
+	if err != nil {
+		logr.Error(err, "Failed to get Gateway VIPs", "distGroup", distGroup.Name)
+		return fmt.Errorf("failed to get Gateway VIPs: %w", err)
+	}
 	if err := c.configureNftables(ctx, distGroup.Name, vips); err != nil {
 		logr.Error(err, "Failed to configure nftables", "distGroup", distGroup.Name)
 		return fmt.Errorf("failed to configure nftables: %w", err)
@@ -288,32 +292,35 @@ func (c *Controller) convertL34RouteToFlow(route *meridio2v1alpha1.L34Route) *ns
 	return flow
 }
 
-// extractVIPs extracts all unique VIPs from L34Routes.
-func extractVIPs(routes map[string]*meridio2v1alpha1.L34Route) []string {
-	vipSet := make(map[string]struct{})
-	for _, route := range routes {
-		for _, vip := range route.Spec.DestinationCIDRs {
-			vipSet[vip] = struct{}{}
+// getGatewayVIPs extracts VIP addresses from Gateway status
+func (c *Controller) getGatewayVIPs(ctx context.Context) ([]string, error) {
+	gateway := &gatewayv1.Gateway{}
+	if err := c.Get(ctx, client.ObjectKey{
+		Name:      c.GatewayName,
+		Namespace: c.GatewayNamespace,
+	}, gateway); err != nil {
+		return nil, fmt.Errorf("failed to get Gateway: %w", err)
+	}
+
+	vips := []string{}
+	for _, addr := range gateway.Status.Addresses {
+		if addr.Type != nil && *addr.Type == gatewayv1.IPAddressType {
+			vips = append(vips, addr.Value)
 		}
 	}
 
-	vips := make([]string, 0, len(vipSet))
-	for vip := range vipSet {
-		vips = append(vips, vip)
-	}
-	return vips
+	return vips, nil
 }
 
 // configureNftables configures nftables rules for VIPs.
 func (c *Controller) configureNftables(ctx context.Context, distGroupName string, vips []string) error {
 	logr := log.FromContext(ctx)
 
-	nftMgr, exists := c.nftManagers[distGroupName]
-	if !exists {
-		return fmt.Errorf("nftables manager not found for DistributionGroup %s", distGroupName)
+	if c.nftManager == nil {
+		return fmt.Errorf("shared nftables manager not initialized")
 	}
 
-	if err := nftMgr.SetVIPs(vips); err != nil {
+	if err := c.nftManager.SetVIPs(vips); err != nil {
 		return fmt.Errorf("failed to set VIPs in nftables: %w", err)
 	}
 
