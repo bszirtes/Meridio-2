@@ -192,9 +192,29 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 
 		// Check if route references this DistributionGroup
 		for _, backendRef := range route.Spec.BackendRefs {
-			if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
-				backendRef.Kind != nil && string(*backendRef.Kind) == kindDistributionGroup &&
-				string(backendRef.Name) == distGroup.Name {
+			// Default Group to "" (core API group) when unspecified
+			group := ""
+			if backendRef.Group != nil {
+				group = string(*backendRef.Group)
+			}
+
+			// Default Kind to "Service" when unspecified
+			kind := "Service"
+			if backendRef.Kind != nil {
+				kind = string(*backendRef.Kind)
+			}
+
+			// Default Namespace to Route's namespace when unspecified
+			namespace := route.Namespace
+			if backendRef.Namespace != nil {
+				namespace = string(*backendRef.Namespace)
+			}
+
+			// Check if this backendRef matches our DistributionGroup
+			if group == meridio2v1alpha1.GroupVersion.Group &&
+				kind == kindDistributionGroup &&
+				string(backendRef.Name) == distGroup.Name &&
+				namespace == distGroup.Namespace {
 				return true
 			}
 		}
@@ -256,12 +276,31 @@ func (c *Controller) l34RouteEnqueue(ctx context.Context, obj client.Object) []c
 	// Enqueue all DistributionGroups referenced by this route
 	var requests []ctrl.Request
 	for _, backendRef := range route.Spec.BackendRefs {
-		if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
-			backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" {
+		// Default Group to "" (core API group) when unspecified
+		group := ""
+		if backendRef.Group != nil {
+			group = string(*backendRef.Group)
+		}
+
+		// Default Kind to "Service" when unspecified
+		kind := "Service"
+		if backendRef.Kind != nil {
+			kind = string(*backendRef.Kind)
+		}
+
+		// Default Namespace to Route's namespace when unspecified
+		namespace := route.Namespace
+		if backendRef.Namespace != nil {
+			namespace = string(*backendRef.Namespace)
+		}
+
+		// Check if this backendRef is a DistributionGroup
+		if group == meridio2v1alpha1.GroupVersion.Group &&
+			kind == kindDistributionGroup {
 			requests = append(requests, ctrl.Request{
 				NamespacedName: client.ObjectKey{
 					Name:      string(backendRef.Name),
-					Namespace: c.GatewayNamespace,
+					Namespace: namespace,
 				},
 			})
 		}

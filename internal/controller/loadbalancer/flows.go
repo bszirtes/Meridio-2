@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 )
@@ -217,8 +218,29 @@ func (c *Controller) listMatchingL34Routes(ctx context.Context, distGroup *merid
 // referencesGateway checks if L34Route references this Gateway.
 func (c *Controller) referencesGateway(route *meridio2v1alpha1.L34Route) bool {
 	for _, parentRef := range route.Spec.ParentRefs {
-		if string(parentRef.Name) == c.GatewayName &&
-			(parentRef.Namespace == nil || string(*parentRef.Namespace) == c.GatewayNamespace) {
+		// Default Group to "gateway.networking.k8s.io" when unspecified
+		group := "gateway.networking.k8s.io"
+		if parentRef.Group != nil {
+			group = string(*parentRef.Group)
+		}
+
+		// Default Kind to "Gateway" when unspecified
+		kind := "Gateway"
+		if parentRef.Kind != nil {
+			kind = string(*parentRef.Kind)
+		}
+
+		// Default Namespace to Route's namespace when unspecified
+		namespace := route.Namespace
+		if parentRef.Namespace != nil {
+			namespace = string(*parentRef.Namespace)
+		}
+
+		// Check if this parentRef matches our Gateway
+		if group == gatewayv1.GroupVersion.Group &&
+			kind == "Gateway" &&
+			string(parentRef.Name) == c.GatewayName &&
+			namespace == c.GatewayNamespace {
 			return true
 		}
 	}
