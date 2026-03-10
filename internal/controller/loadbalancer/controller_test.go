@@ -381,14 +381,17 @@ var _ = Describe("LoadBalancer Controller", func() {
 			err := controller.reconcileTargets(ctx, distGroup)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Calculate expected fwmark offset for this DistributionGroup
+			expectedOffset := getFwmarkOffset(distGroup.Name)
+
 			// Verify targets were activated with correct fwmark
-			// identifier=0 -> index=1, fwmark=5000
-			// identifier=1 -> index=2, fwmark=5001
+			// identifier=0 -> index=1, fwmark=offset+0
+			// identifier=1 -> index=2, fwmark=offset+1
 			mockInstance := mockFactory.instances[distGroup.Name]
-			Expect(mockInstance.activatedTargets).To(HaveKey(5000))  // fwmark = 0 + 5000
-			Expect(mockInstance.activatedTargets[5000]).To(Equal(1)) // index = 0 + 1
-			Expect(mockInstance.activatedTargets).To(HaveKey(5001))  // fwmark = 1 + 5000
-			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset))     // fwmark = 0 + offset
+			Expect(mockInstance.activatedTargets[expectedOffset]).To(Equal(1))    // index = 0 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset + 1)) // fwmark = 1 + offset
+			Expect(mockInstance.activatedTargets[expectedOffset+1]).To(Equal(2))  // index = 1 + 1
 		})
 
 		It("should skip endpoints without Zone field", func() {
@@ -547,12 +550,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 			err := controller.reconcileTargets(ctx, distGroup)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Calculate expected fwmark offset for this DistributionGroup
+			expectedOffset := getFwmarkOffset(distGroup.Name)
+
 			// Verify targets were activated with correct identifiers
 			mockInstance := mockFactory.instances[distGroup.Name]
-			Expect(mockInstance.activatedTargets).To(HaveKey(5000))  // fwmark = 0 + 5000
-			Expect(mockInstance.activatedTargets[5000]).To(Equal(1)) // index = 0 + 1
-			Expect(mockInstance.activatedTargets).To(HaveKey(5001))  // fwmark = 1 + 5000
-			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset))     // fwmark = 0 + offset
+			Expect(mockInstance.activatedTargets[expectedOffset]).To(Equal(1))    // index = 0 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset + 1)) // fwmark = 1 + offset
+			Expect(mockInstance.activatedTargets[expectedOffset+1]).To(Equal(2))  // index = 1 + 1
 		})
 
 		It("should skip endpoints with invalid Zone format", func() {
@@ -602,10 +608,13 @@ var _ = Describe("LoadBalancer Controller", func() {
 			err := controller.reconcileTargets(ctx, distGroup)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Calculate expected fwmark offset for this DistributionGroup
+			expectedOffset := getFwmarkOffset(distGroup.Name)
+
 			// Only valid endpoint should be activated
 			mockInstance := mockFactory.instances[distGroup.Name]
 			Expect(mockInstance.activatedTargets).To(HaveLen(1))
-			Expect(mockInstance.activatedTargets).To(HaveKey(5000)) // Only maglev:0
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset)) // Only maglev:0
 		})
 	})
 
