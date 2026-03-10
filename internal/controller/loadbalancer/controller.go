@@ -219,23 +219,26 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 
 // endpointSliceEnqueue maps EndpointSlice events to DistributionGroup reconcile requests
 func (c *Controller) endpointSliceEnqueue(ctx context.Context, obj client.Object) []ctrl.Request {
-	// EndpointSlices are labeled with meridio-2.nordix.org/distributiongroup = DistributionGroup name
-	distGroupName := obj.GetLabels()["meridio-2.nordix.org/distributiongroup"]
-	if distGroupName == "" {
-		return nil
+	// EndpointSlices have OwnerReference to their DistributionGroup
+	for _, ownerRef := range obj.GetOwnerReferences() {
+		if ownerRef.APIVersion == meridio2v1alpha1.GroupVersion.String() &&
+			ownerRef.Kind == kindDistributionGroup &&
+			ownerRef.Controller != nil && *ownerRef.Controller {
+			// Only trigger if in our namespace
+			if obj.GetNamespace() != c.GatewayNamespace {
+				return nil
+			}
+
+			return []ctrl.Request{{
+				NamespacedName: client.ObjectKey{
+					Name:      ownerRef.Name,
+					Namespace: obj.GetNamespace(),
+				},
+			}}
+		}
 	}
 
-	// Only trigger if in our namespace
-	if obj.GetNamespace() != c.GatewayNamespace {
-		return nil
-	}
-
-	return []ctrl.Request{{
-		NamespacedName: client.ObjectKey{
-			Name:      distGroupName,
-			Namespace: obj.GetNamespace(),
-		},
-	}}
+	return nil
 }
 
 // l34RouteEnqueue maps L34Route events to DistributionGroup reconcile requests
