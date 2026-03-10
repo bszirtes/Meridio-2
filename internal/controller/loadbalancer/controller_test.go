@@ -27,6 +27,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -341,7 +342,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -388,7 +397,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -424,7 +441,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -483,7 +508,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -530,7 +563,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -595,7 +636,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -676,7 +725,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -925,13 +982,22 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": "test-distgroup",
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       "test-distgroup",
+							Controller: ptr.To(true),
+						},
 					},
 				},
 			}
 
 			requests := controller.endpointSliceEnqueue(ctx, endpointSlice)
 			Expect(requests).To(HaveLen(1))
+			Expect(requests[0].Name).To(Equal("test-distgroup"))
 			Expect(requests[0].Name).To(Equal("test-distgroup"))
 			Expect(requests[0].Namespace).To(Equal(namespace))
 		})
@@ -955,7 +1021,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: "other-namespace",
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": "test-distgroup",
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       "test-distgroup",
+							Controller: ptr.To(true),
+						},
 					},
 				},
 			}

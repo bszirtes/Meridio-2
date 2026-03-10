@@ -30,7 +30,6 @@ const (
 	outputChainName     = "output"
 	ipv4VIPSetName      = "ipv4-vips"
 	ipv6VIPSetName      = "ipv6-vips"
-	nftqueueFlagFanout  = 0x01
 )
 
 // Manager manages nftables rules for VIP traffic.
@@ -148,7 +147,7 @@ func (m *Manager) createPreroutingChain() error {
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
 			&expr.Lookup{SourceRegister: 1, SetName: m.ipv4Set.Name, SetID: m.ipv4Set.ID},
 			&expr.Counter{},
-			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: nftqueueFlagFanout},
+			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: expr.QueueFlagFanout},
 		},
 	})
 
@@ -162,7 +161,7 @@ func (m *Manager) createPreroutingChain() error {
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
 			&expr.Lookup{SourceRegister: 1, SetName: m.ipv6Set.Name, SetID: m.ipv6Set.ID},
 			&expr.Counter{},
-			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: nftqueueFlagFanout},
+			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: expr.QueueFlagFanout},
 		},
 	})
 
@@ -190,7 +189,7 @@ func (m *Manager) createOutputChain() error {
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
 			&expr.Lookup{SourceRegister: 1, SetName: m.ipv4Set.Name, SetID: m.ipv4Set.ID},
 			&expr.Counter{},
-			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: nftqueueFlagFanout},
+			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: expr.QueueFlagFanout},
 		},
 	})
 
@@ -206,7 +205,7 @@ func (m *Manager) createOutputChain() error {
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
 			&expr.Lookup{SourceRegister: 1, SetName: m.ipv6Set.Name, SetID: m.ipv6Set.ID},
 			&expr.Counter{},
-			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: nftqueueFlagFanout},
+			&expr.Queue{Num: m.queueNum, Total: m.queueTotal, Flag: expr.QueueFlagFanout},
 		},
 	})
 

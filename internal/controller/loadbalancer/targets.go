@@ -46,7 +46,7 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	if err := c.List(ctx, endpointSliceList,
 		client.InNamespace(c.GatewayNamespace),
 		client.MatchingLabels{
-			"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+			"meridio-2.nordix.org/distribution-group": distGroup.Name,
 		}); err != nil {
 		return err
 	}

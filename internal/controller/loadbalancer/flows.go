@@ -125,14 +125,28 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 func (c *Controller) hasReadyEndpoints(ctx context.Context, distGroupName string) (bool, error) {
 	endpointSliceList := &discoveryv1.EndpointSliceList{}
 	if err := c.List(ctx, endpointSliceList,
-		client.InNamespace(c.GatewayNamespace),
-		client.MatchingLabels{
-			"meridio-2.nordix.org/distributiongroup": distGroupName,
-		}); err != nil {
+		client.InNamespace(c.GatewayNamespace)); err != nil {
 		return false, err
 	}
 
+	// Check EndpointSlices owned by this DistributionGroup
 	for _, eps := range endpointSliceList.Items {
+		// Check if owned by this DistributionGroup
+		isOwned := false
+		for _, ownerRef := range eps.GetOwnerReferences() {
+			if ownerRef.APIVersion == meridio2v1alpha1.GroupVersion.String() &&
+				ownerRef.Kind == kindDistributionGroup &&
+				ownerRef.Name == distGroupName &&
+				ownerRef.Controller != nil && *ownerRef.Controller {
+				isOwned = true
+				break
+			}
+		}
+		if !isOwned {
+			continue
+		}
+
+		// Check for ready endpoints
 		for _, endpoint := range eps.Endpoints {
 			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
 				return true, nil
