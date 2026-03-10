@@ -26,6 +26,15 @@ const defaultReadinessDir = "/var/run/meridio"
 
 var readinessDir = defaultReadinessDir
 
+// cleanupReadinessDir removes the readiness directory and all its contents on startup.
+// This ensures a clean state when the controller starts.
+func (c *Controller) cleanupReadinessDir() error {
+	if err := os.RemoveAll(readinessDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove readiness directory: %w", err)
+	}
+	return nil
+}
+
 // createReadinessFile creates a readiness file for the DistributionGroup.
 // This file can be used by liveness/readiness probes to verify the LB is operational.
 func (c *Controller) createReadinessFile(distGroupName string) error {
