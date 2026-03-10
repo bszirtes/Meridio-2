@@ -136,6 +136,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 			GatewayName:      gatewayName,
 			GatewayNamespace: namespace,
 			LBFactory:        mockFactory,
+			routingManager:   NewMockRoutingManager(),
 			NftManagerFactory: func(distGroupName string, queueNum, queueTotal uint16) (nftablesManager, error) {
 				return newMockNftablesManager(), nil
 			},
