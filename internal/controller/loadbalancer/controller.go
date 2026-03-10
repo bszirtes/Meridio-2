@@ -87,34 +87,27 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := c.Get(ctx, req.NamespacedName, distGroup); err != nil {
 		if apierrors.IsNotFound(err) {
 			// DistributionGroup deleted - cleanup NFQLB instance and nftables
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			if instance, exists := c.instances[req.Name]; exists {
-				logr.Info("Deleting NFQLB instance for deleted DistributionGroup", "distGroup", req.Name)
-				if err := instance.Delete(); err != nil {
-					logr.Error(err, "Failed to delete NFQLB instance", "distGroup", req.Name)
-				}
-				delete(c.instances, req.Name)
-				delete(c.targets, req.Name)
-				delete(c.flows, req.Name)
-			}
-			if nftMgr, exists := c.nftManagers[req.Name]; exists {
-				if err := nftMgr.Cleanup(); err != nil {
-					logr.Error(err, "Failed to cleanup nftables", "distGroup", req.Name)
-				}
-				delete(c.nftManagers, req.Name)
-			}
-			// Remove readiness file
-			if err := c.removeReadinessFile(req.Name); err != nil {
-				logr.Error(err, "Failed to remove readiness file", "distGroup", req.Name)
-			}
-			return ctrl.Result{}, nil
+			logr.Info("DistributionGroup deleted, cleaning up resources", "distGroup", req.Name)
+			return c.cleanupDistributionGroup(ctx, req.Name)
 		}
 		return ctrl.Result{}, err
 	}
 
 	// Filter: Only reconcile DistributionGroups for this Gateway
 	if !c.belongsToGateway(ctx, distGroup) {
+		// Check if we previously managed this DistributionGroup
+		c.mu.Lock()
+		_, wasManaged := c.instances[distGroup.Name]
+		c.mu.Unlock()
+
+		if wasManaged {
+			// DistributionGroup moved to another Gateway - cleanup local resources
+			logr.Info("DistributionGroup moved to another Gateway, cleaning up local resources",
+				"distGroup", distGroup.Name,
+				"gateway", c.GatewayName)
+			return c.cleanupDistributionGroup(ctx, distGroup.Name)
+		}
+
 		logr.V(1).Info("DistributionGroup does not belong to this Gateway, skipping",
 			"distGroup", distGroup.Name,
 			"gateway", c.GatewayName)
@@ -142,6 +135,41 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// TODO: Write readiness file
+
+	return ctrl.Result{}, nil
+}
+
+// cleanupDistributionGroup removes all local resources for a DistributionGroup.
+// Used when DG is deleted or moved to another Gateway.
+func (c *Controller) cleanupDistributionGroup(ctx context.Context, distGroupName string) (ctrl.Result, error) {
+	logr := log.FromContext(ctx)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Cleanup NFQLB instance
+	if instance, exists := c.instances[distGroupName]; exists {
+		logr.Info("Deleting NFQLB instance", "distGroup", distGroupName)
+		if err := instance.Delete(); err != nil {
+			logr.Error(err, "Failed to delete NFQLB instance", "distGroup", distGroupName)
+		}
+		delete(c.instances, distGroupName)
+		delete(c.targets, distGroupName)
+		delete(c.flows, distGroupName)
+	}
+
+	// Cleanup nftables
+	if nftMgr, exists := c.nftManagers[distGroupName]; exists {
+		if err := nftMgr.Cleanup(); err != nil {
+			logr.Error(err, "Failed to cleanup nftables", "distGroup", distGroupName)
+		}
+		delete(c.nftManagers, distGroupName)
+	}
+
+	// Remove readiness file
+	if err := c.removeReadinessFile(distGroupName); err != nil {
+		logr.Error(err, "Failed to remove readiness file", "distGroup", distGroupName)
+	}
 
 	return ctrl.Result{}, nil
 }
