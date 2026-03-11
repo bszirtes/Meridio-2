@@ -19,6 +19,7 @@ package loadbalancer
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	nspAPI "github.com/nordix/meridio/api/nsp/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -305,7 +306,17 @@ func (c *Controller) getGatewayVIPs(ctx context.Context) ([]string, error) {
 	vips := []string{}
 	for _, addr := range gateway.Status.Addresses {
 		if addr.Type != nil && *addr.Type == gatewayv1.IPAddressType {
-			vips = append(vips, addr.Value)
+			// Convert IP to CIDR format for nftables
+			cidr := addr.Value
+			if !strings.Contains(cidr, "/") {
+				// Detect IPv4 vs IPv6 and add appropriate prefix
+				if strings.Contains(cidr, ":") {
+					cidr += "/128" // IPv6
+				} else {
+					cidr += "/32" // IPv4
+				}
+			}
+			vips = append(vips, cidr)
 		}
 	}
 

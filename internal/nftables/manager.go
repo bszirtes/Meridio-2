@@ -222,14 +222,58 @@ func (m *Manager) updateSet(set *nftables.Set, cidrs []string) error {
 		if err != nil {
 			return fmt.Errorf("invalid CIDR %s: %w", cidr, err)
 		}
-		elements = append(elements, cidrToSetElements(ipNet)...)
+		setElems := cidrToSetElements(ipNet)
+		elements = append(elements, setElems...)
 	}
 
-	m.conn.FlushSet(set)
-	if err := m.conn.SetAddElements(set, elements); err != nil {
+	// Allow empty sets - just flush and return
+	if len(elements) == 0 {
+		// Get the actual set from the kernel
+		sets, err := m.conn.GetSets(m.table)
+		if err != nil {
+			return fmt.Errorf("failed to get sets: %w", err)
+		}
+
+		var targetSet *nftables.Set
+		for _, s := range sets {
+			if s.Name == set.Name {
+				targetSet = s
+				break
+			}
+		}
+		if targetSet == nil {
+			return fmt.Errorf("set %s not found", set.Name)
+		}
+
+		m.conn.FlushSet(targetSet)
+		return m.conn.Flush()
+	}
+
+	// Get the actual set from the kernel
+	sets, err := m.conn.GetSets(m.table)
+	if err != nil {
+		return fmt.Errorf("failed to get sets: %w", err)
+	}
+
+	var targetSet *nftables.Set
+	for _, s := range sets {
+		if s.Name == set.Name {
+			targetSet = s
+			break
+		}
+	}
+	if targetSet == nil {
+		return fmt.Errorf("set %s not found", set.Name)
+	}
+
+	m.conn.FlushSet(targetSet)
+	if err := m.conn.SetAddElements(targetSet, elements); err != nil {
 		return fmt.Errorf("failed to add elements: %w", err)
 	}
-	return m.conn.Flush()
+	if err := m.conn.Flush(); err != nil {
+		return fmt.Errorf("failed to flush connection: %w", err)
+	}
+	return nil
 }
 
 func cidrToSetElements(ipNet *net.IPNet) []nftables.SetElement {
