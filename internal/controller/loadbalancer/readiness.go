@@ -26,12 +26,27 @@ const defaultReadinessDir = "/var/run/meridio"
 
 var readinessDir = defaultReadinessDir
 
-// cleanupReadinessDir removes the readiness directory and all its contents on startup.
+// cleanupReadinessDir removes all readiness files on startup.
 // This ensures a clean state when the controller starts.
 func (c *Controller) cleanupReadinessDir() error {
-	if err := os.RemoveAll(readinessDir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove readiness directory: %w", err)
+	// Ensure directory exists
+	if err := os.MkdirAll(readinessDir, 0755); err != nil {
+		return fmt.Errorf("failed to create readiness directory: %w", err)
 	}
+
+	// Remove all lb-ready-* files
+	pattern := filepath.Join(readinessDir, "lb-ready-*")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to glob readiness files: %w", err)
+	}
+
+	for _, file := range matches {
+		if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove readiness file %s: %w", file, err)
+		}
+	}
+
 	return nil
 }
 
