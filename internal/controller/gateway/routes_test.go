@@ -145,7 +145,10 @@ func TestMapL34RouteToGateway(t *testing.T) {
 		reconciler, _ := setupReconciler(gw, route)
 		requests := reconciler.mapL34RouteToGateway(context.Background(), route)
 
-		assert.Empty(t, requests)
+		// Mapper enqueues all Gateway parentRefs (no pre-filtering)
+		// Reconcile loop decides whether to process based on acceptance
+		assert.Len(t, requests, 1)
+		assert.Equal(t, ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-gw", Namespace: "default"}}, requests[0])
 	})
 
 	t.Run("NonGatewayParentRef", func(t *testing.T) {

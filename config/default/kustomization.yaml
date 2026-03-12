@@ -220,6 +220,18 @@ replacements:
          index: 1
          create: true
 
+ - source: # LB ServiceAccount name injection (applies namePrefix automatically)
+     kind: ServiceAccount
+     version: v1
+     name: stateless-load-balancer
+     fieldPath: metadata.name
+   targets:
+     - select:
+         kind: Deployment
+         labelSelector: control-plane=controller-manager
+       fieldPaths:
+         - spec.template.spec.containers.[name=manager].env.[name=MERIDIO_LB_SERVICE_ACCOUNT].value
+
 # - source: # Uncomment the following block if you have a ConversionWebhook (--conversion)
 #     kind: Certificate
 #     group: cert-manager.io

@@ -36,7 +36,7 @@ func (r *GatewayReconciler) mapL34RouteToGateway(ctx context.Context, obj client
 
 	requests := make([]ctrl.Request, 0, len(route.Spec.ParentRefs))
 	for _, parentRef := range route.Spec.ParentRefs {
-		// Check if parentRef is a Gateway (early filter to avoid unnecessary API calls)
+		// Check if parentRef is a Gateway
 		group := gatewayv1.GroupName
 		if parentRef.Group != nil {
 			group = string(*parentRef.Group)
@@ -53,17 +53,6 @@ func (r *GatewayReconciler) mapL34RouteToGateway(ctx context.Context, obj client
 		ns := route.Namespace
 		if parentRef.Namespace != nil {
 			ns = string(*parentRef.Namespace)
-		}
-
-		// Check if Gateway is accepted by this controller (best effort)
-		// On error, include Gateway to avoid missing events (reconcile will re-check)
-		var gw gatewayv1.Gateway
-		if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: string(parentRef.Name)}, &gw); err == nil {
-			// Only filter if we successfully fetched and it's not accepted
-			// Acceptance is determined by GatewayClass/Gateway/GatewayConfiguration events, not L34Route changes.
-			if !isGatewayAcceptedByController(&gw, r.ControllerName) {
-				continue
-			}
 		}
 
 		requests = append(requests, ctrl.Request{

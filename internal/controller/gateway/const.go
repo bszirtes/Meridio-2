@@ -31,8 +31,9 @@ const (
 	yamlDecoderBufferSize = 4096
 
 	// LB Deployment naming
-	lbDeploymentPrefix       = "sllb-"
-	lbDeploymentTemplateFile = "lb-deployment.yaml"
+	lbDeploymentPrefix = "sllb-"
+	// LBDeploymentTemplateFile is the filename for the LB Deployment template
+	LBDeploymentTemplateFile = "lb-deployment.yaml"
 
 	// Labels
 	labelGatewayName = "gateway.networking.k8s.io/gateway-name"
