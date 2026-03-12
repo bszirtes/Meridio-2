@@ -18,7 +18,6 @@ package loadbalancer
 
 import (
 	"context"
-	"hash/fnv"
 	"strconv"
 
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -35,12 +34,14 @@ const (
 
 // getFwmarkOffset calculates the fwmark offset for a DistributionGroup
 // Formula: DistributionGroup_ID * 1024 + 5000
-// DistributionGroup_ID is derived from a hash of the DG name
-func getFwmarkOffset(distGroupName string) int {
-	// Generate stable ID from name using FNV hash
-	h := fnv.New32a()
-	h.Write([]byte(distGroupName))
-	dgID := int(h.Sum32() % 1024) // Limit to 0-1023 to prevent huge offsets
+// DistributionGroup_ID is assigned sequentially (0, 1, 2, ...) to avoid collisions
+// Note: Caller must hold c.mu lock
+func (c *Controller) getFwmarkOffset(distGroupName string) int {
+	dgID, exists := c.dgIDs[distGroupName]
+	if !exists {
+		// Should not happen - ID assigned during instance creation
+		return baseOffset
+	}
 
 	return dgID*offsetMultiplier + baseOffset
 }
@@ -58,7 +59,7 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	}
 
 	// Calculate fwmark offset for this DistributionGroup
-	fwmarkOffset := getFwmarkOffset(distGroup.Name)
+	fwmarkOffset := c.getFwmarkOffset(distGroup.Name)
 
 	// Get EndpointSlices for this DistributionGroup
 	endpointSliceList := &discoveryv1.EndpointSliceList{}
