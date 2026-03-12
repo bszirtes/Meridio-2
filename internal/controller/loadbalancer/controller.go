@@ -76,6 +76,7 @@ type Controller struct {
 	dgIDs          map[string]int                                   // key: DistributionGroup name -> ID (0, 1, 2, ...)
 	freedIDs       []int                                            // Pool of freed IDs for reuse
 	nextID         int                                              // Next available ID if no freed IDs
+	currentVIPs    []string                                         // Currently configured VIPs (to avoid redundant updates)
 }
 
 // nftablesManager interface for nftables operations

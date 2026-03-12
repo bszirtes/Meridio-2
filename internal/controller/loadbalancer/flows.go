@@ -324,6 +324,7 @@ func (c *Controller) getGatewayVIPs(ctx context.Context) ([]string, error) {
 }
 
 // configureNftables configures nftables rules for VIPs.
+// Only updates nftables if VIPs have changed to avoid unnecessary flushes.
 func (c *Controller) configureNftables(ctx context.Context, distGroupName string, vips []string) error {
 	logr := log.FromContext(ctx)
 
@@ -331,10 +332,34 @@ func (c *Controller) configureNftables(ctx context.Context, distGroupName string
 		return fmt.Errorf("shared nftables manager not initialized")
 	}
 
+	// Check if VIPs have changed
+	if vipsEqual(c.currentVIPs, vips) {
+		return nil
+	}
+
 	if err := c.nftManager.SetVIPs(vips); err != nil {
 		return fmt.Errorf("failed to set VIPs in nftables: %w", err)
 	}
 
+	c.currentVIPs = append([]string{}, vips...) // Store copy
 	logr.Info("Configured nftables VIP rules", "distGroup", distGroupName, "vipCount", len(vips))
 	return nil
+}
+
+// vipsEqual compares two VIP slices for equality
+func vipsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	// Create maps for comparison (order-independent)
+	aMap := make(map[string]bool, len(a))
+	for _, v := range a {
+		aMap[v] = true
+	}
+	for _, v := range b {
+		if !aMap[v] {
+			return false
+		}
+	}
+	return true
 }
