@@ -278,6 +278,8 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 
 	// Setup shared nftables table
 	if err := c.nftManager.Setup(); err != nil {
+		// Cleanup partially created resources
+		_ = c.nftManager.Cleanup()
 		return fmt.Errorf("failed to setup nftables: %w", err)
 	}
 
