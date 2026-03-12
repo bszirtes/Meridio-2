@@ -99,7 +99,11 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// Filter: Only reconcile DistributionGroups for this Gateway
-	if !c.belongsToGateway(ctx, distGroup) {
+	belongs, err := c.belongsToGateway(ctx, distGroup)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to check Gateway membership: %w", err)
+	}
+	if !belongs {
 		// Check if we previously managed this DistributionGroup
 		c.mu.Lock()
 		_, wasManaged := c.instances[distGroup.Name]
@@ -173,10 +177,10 @@ func (c *Controller) cleanupDistributionGroup(ctx context.Context, distGroupName
 
 // belongsToGateway checks if a DistributionGroup belongs to this Gateway
 // by checking if any L34Route references both this Gateway and this DistributionGroup
-func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) bool {
+func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) (bool, error) {
 	l34routeList := &meridio2v1alpha1.L34RouteList{}
 	if err := c.List(ctx, l34routeList, client.InNamespace(c.GatewayNamespace)); err != nil {
-		return false
+		return false, fmt.Errorf("failed to list L34Routes: %w", err)
 	}
 
 	for i := range l34routeList.Items {
@@ -212,12 +216,12 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 				kind == kindDistributionGroup &&
 				string(backendRef.Name) == distGroup.Name &&
 				namespace == distGroup.Namespace {
-				return true
+				return true, nil
 			}
 		}
 	}
 
-	return false
+	return false, nil
 }
 
 // gatewayEnqueue enqueues reconcile requests for all DistributionGroups when Gateway status changes

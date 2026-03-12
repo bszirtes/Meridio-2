@@ -188,7 +188,8 @@ var _ = Describe("LoadBalancer Controller", func() {
 				Build()
 			controller.Client = fakeClient
 
-			result := controller.belongsToGateway(ctx, distGroup)
+			result, err := controller.belongsToGateway(ctx, distGroup)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
 
@@ -205,7 +206,8 @@ var _ = Describe("LoadBalancer Controller", func() {
 				Build()
 			controller.Client = fakeClient
 
-			result := controller.belongsToGateway(ctx, distGroup)
+			result, err := controller.belongsToGateway(ctx, distGroup)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
 
@@ -248,7 +250,8 @@ var _ = Describe("LoadBalancer Controller", func() {
 				Build()
 			controller.Client = fakeClient
 
-			result := controller.belongsToGateway(ctx, distGroup)
+			result, err := controller.belongsToGateway(ctx, distGroup)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
 	})
