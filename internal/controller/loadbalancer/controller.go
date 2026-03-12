@@ -73,6 +73,9 @@ type Controller struct {
 	routingManager *RoutingManager                                  // Manages policy routing for all targets
 	targets        map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
 	flows          map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
+	dgIDs          map[string]int                                   // key: DistributionGroup name -> ID (0, 1, 2, ...)
+	freedIDs       []int                                            // Pool of freed IDs for reuse
+	nextID         int                                              // Next available ID if no freed IDs
 }
 
 // nftablesManager interface for nftables operations
@@ -163,6 +166,12 @@ func (c *Controller) cleanupDistributionGroup(ctx context.Context, distGroupName
 		delete(c.instances, distGroupName)
 		delete(c.targets, distGroupName)
 		delete(c.flows, distGroupName)
+
+		// Return ID to freed pool for reuse
+		if id, exists := c.dgIDs[distGroupName]; exists {
+			c.freedIDs = append(c.freedIDs, id)
+			delete(c.dgIDs, distGroupName)
+		}
 	}
 
 	// Note: nftables manager is shared, not cleaned up per-DG

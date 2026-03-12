@@ -324,6 +324,60 @@ var _ = Describe("LoadBalancer Controller", func() {
 			// Should be same instance
 			Expect(firstInstance).To(BeIdenticalTo(secondInstance))
 		})
+
+		It("should assign sequential IDs without collisions", func() {
+			dg1 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-1", Namespace: namespace},
+			}
+			dg2 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-2", Namespace: namespace},
+			}
+			dg3 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-3", Namespace: namespace},
+			}
+
+			// Create instances
+			Expect(controller.reconcileNFQLBInstance(ctx, dg1)).To(Succeed())
+			Expect(controller.reconcileNFQLBInstance(ctx, dg2)).To(Succeed())
+			Expect(controller.reconcileNFQLBInstance(ctx, dg3)).To(Succeed())
+
+			// Verify sequential IDs
+			Expect(controller.dgIDs["dg-1"]).To(Equal(0))
+			Expect(controller.dgIDs["dg-2"]).To(Equal(1))
+			Expect(controller.dgIDs["dg-3"]).To(Equal(2))
+			Expect(controller.nextID).To(Equal(3))
+		})
+
+		It("should reuse freed IDs", func() {
+			dg1 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-1", Namespace: namespace},
+			}
+			dg2 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-2", Namespace: namespace},
+			}
+			dg3 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-3", Namespace: namespace},
+			}
+
+			// Create three instances (IDs: 0, 1, 2)
+			Expect(controller.reconcileNFQLBInstance(ctx, dg1)).To(Succeed())
+			Expect(controller.reconcileNFQLBInstance(ctx, dg2)).To(Succeed())
+			Expect(controller.reconcileNFQLBInstance(ctx, dg3)).To(Succeed())
+
+			// Delete dg-2 (frees ID 1)
+			_, err := controller.cleanupDistributionGroup(ctx, "dg-2")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(controller.freedIDs).To(ContainElement(1))
+
+			// Create new DG - should reuse ID 1
+			dg4 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-4", Namespace: namespace},
+			}
+			Expect(controller.reconcileNFQLBInstance(ctx, dg4)).To(Succeed())
+			Expect(controller.dgIDs["dg-4"]).To(Equal(1))
+			Expect(controller.freedIDs).To(BeEmpty())
+			Expect(controller.nextID).To(Equal(3)) // Should not increment
+		})
 	})
 
 	Describe("reconcileTargets", func() {
@@ -390,7 +444,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Calculate expected fwmark offset for this DistributionGroup
-			expectedOffset := getFwmarkOffset(distGroup.Name)
+			expectedOffset := controller.getFwmarkOffset(distGroup.Name)
 
 			// Verify targets were activated with correct fwmark
 			// identifier=0 -> index=1, fwmark=offset+0
@@ -559,7 +613,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Calculate expected fwmark offset for this DistributionGroup
-			expectedOffset := getFwmarkOffset(distGroup.Name)
+			expectedOffset := controller.getFwmarkOffset(distGroup.Name)
 
 			// Verify targets were activated with correct identifiers
 			mockInstance := mockFactory.instances[distGroup.Name]
@@ -617,7 +671,7 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Calculate expected fwmark offset for this DistributionGroup
-			expectedOffset := getFwmarkOffset(distGroup.Name)
+			expectedOffset := controller.getFwmarkOffset(distGroup.Name)
 
 			// Only valid endpoint should be activated
 			mockInstance := mockFactory.instances[distGroup.Name]
