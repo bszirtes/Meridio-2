@@ -77,6 +77,11 @@ func NewRunCmd() *cobra.Command {
 					err)
 			}
 
+			// Check if LB deployment template exists
+			if err := prerequisites.CheckFile(cfg.TemplatePath, gateway.LBDeploymentTemplateFile); err != nil {
+				return fmt.Errorf("LB deployment template not found: %w", err)
+			}
+
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

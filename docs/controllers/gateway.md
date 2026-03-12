@@ -22,9 +22,10 @@ The Gateway controller manages the lifecycle of Gateway API Gateway resources, c
   - LB Deployments are pure Kubernetes resources (no external cleanup needed)
   - OwnerReferences ensure cleanup even if controller is unavailable
   - Simpler operational model: no manual intervention needed
-- **Mixed filtering strategy**: 
-  - GatewayClass-based filtering in mappers (avoid missing events)
-  - Status condition checks in reconciliation (authoritative decision)
+- **Reconcile loop is authoritative**: Mappers enqueue broadly, reconcile decides
+  - GatewayClass mapper filters by controllerName (avoid missing events)
+  - L34Route mapper enqueues all Gateway parentRefs (no pre-filtering)
+  - Reconcile checks `shouldManageGateway()` for final decision
 - **Idempotent reconciliation**: Safe to run multiple times
 - **Template-based deployment**: Load LB Deployment from YAML template, customize per Gateway
 
@@ -158,7 +159,7 @@ The controller reconciles when:
 | Gateway | Create/Update/Delete | Direct (`.For()`) | None (all events) |
 | Deployment | Create/Update/Delete | Owned (`.Owns()`) | ownerReference |
 | GatewayClass | Create/Update/Delete | Matches controllerName | GatewayClass-based |
-| L34Route | Create/Update/Delete | References Gateway in parentRefs | Status condition-based |
+| L34Route | Create/Update/Delete | References Gateway in parentRefs | None (enqueues all) |
 | GatewayConfiguration | Create/Update/Delete | Referenced by Gateway | GatewayClass-based |
 
 ### Filtering Strategy Rationale
@@ -169,19 +170,20 @@ The controller reconciles when:
 - Reconciles all Gateways using the affected GatewayClass
 
 **L34Route mapper:**
-- Uses status condition-based filtering (checks `Accepted=True`)
-- Avoids unnecessary reconciliation for unmanaged Gateways
-- Routes only affect accepted Gateways (address aggregation)
+- No pre-filtering (enqueues all Gateway parentRefs)
+- Reconcile loop is authoritative for acceptance checks
+- Simpler and more robust than status-based filtering in mapper
+- Why not filter by Gateway `Accepted` status?
+  - Would require fetching Gateway from cache in mapper (extra complexity)
+  - Reconcile already has early exit for unmanaged Gateways
+  - Extra reconciles are cheap (controller-runtime uses in-memory cache)
+  - Work queue deduplicates requests (multiple route changes → less reconcile)
+  - Simpler code with no edge cases to reason about
 
 **GatewayConfiguration mapper:**
 - Uses GatewayClass-based filtering (checks `shouldManageGateway`)
 - Avoids missing events when configuration changes
 - Configuration affects acceptance decision (validation)
-
-**Trade-off:**
-- GatewayClass filtering: More reconciliations, but no missed events
-- Status condition filtering: Fewer reconciliations, but requires Gateway to be accepted first
-- Mixed approach balances correctness and efficiency
 
 ## Status Conditions
 

@@ -42,10 +42,12 @@ func (e *permanentDeploymentError) Error() string {
 
 // reconcileLBDeployment creates or updates the LB Deployment for the Gateway
 func (r *GatewayReconciler) reconcileLBDeployment(ctx context.Context, gw *gatewayv1.Gateway) error {
-	// Load template
+	// Load template (errors are permanent - misconfiguration or missing file)
 	template, err := r.loadLBDeploymentTemplate()
 	if err != nil {
-		return fmt.Errorf("failed to load LB deployment template: %w", err)
+		return &permanentDeploymentError{
+			message: fmt.Sprintf("failed to load LB deployment template: %v", err),
+		}
 	}
 
 	// Fetch GatewayConfiguration if referenced
@@ -144,7 +146,7 @@ func reconcileDeploymentSpec(base, template *appsv1.Deployment, gw *gatewayv1.Ga
 		desired.Spec.Template.Annotations = mergeMaps(desired.Spec.Template.Annotations, template.Spec.Template.Annotations)
 	}
 
-	// Apply Gateway infrastructure metadata (overwrites tempalate/existing)
+	// Apply Gateway infrastructure metadata (overwrites template/existing)
 	mergeInfrastructureMetadata(&desired.ObjectMeta, gw)
 	mergeInfrastructureMetadata(&desired.Spec.Template.ObjectMeta, gw)
 

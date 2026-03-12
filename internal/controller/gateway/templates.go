@@ -27,7 +27,7 @@ import (
 
 // loadLBDeploymentTemplate loads the stateless load balancer Deployment template from ConfigMap
 func (r *GatewayReconciler) loadLBDeploymentTemplate() (*appsv1.Deployment, error) {
-	templateFile := filepath.Join(r.TemplatePath, lbDeploymentTemplateFile)
+	templateFile := filepath.Join(r.TemplatePath, LBDeploymentTemplateFile)
 	file, err := os.Open(templateFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open template: %w", err)

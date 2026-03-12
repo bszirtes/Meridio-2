@@ -215,7 +215,7 @@ func TestReconcileLBDeployment(t *testing.T) {
 	t.Run("CreatesDeploymentFromTemplate", func(t *testing.T) {
 		// Setup temp template directory
 		tmpDir := t.TempDir()
-		templateFile := filepath.Join(tmpDir, lbDeploymentTemplateFile)
+		templateFile := filepath.Join(tmpDir, LBDeploymentTemplateFile)
 		templateYAML := `apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -265,7 +265,7 @@ spec:
 	t.Run("UpdatesExistingDeployment", func(t *testing.T) {
 		// Setup temp template directory
 		tmpDir := t.TempDir()
-		templateFile := filepath.Join(tmpDir, lbDeploymentTemplateFile)
+		templateFile := filepath.Join(tmpDir, LBDeploymentTemplateFile)
 		templateYAML := `apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -342,7 +342,7 @@ spec:
 	t.Run("NameCollision_ReturnsError", func(t *testing.T) {
 		// Setup temp template directory
 		tmpDir := t.TempDir()
-		templateFile := filepath.Join(tmpDir, lbDeploymentTemplateFile)
+		templateFile := filepath.Join(tmpDir, LBDeploymentTemplateFile)
 		templateYAML := `apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -407,6 +407,23 @@ spec:
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "name collision")
 		assert.Contains(t, err.Error(), "Gateway/other-gateway")
+
+		// Verify it's a permanent error
+		var permErr *permanentDeploymentError
+		assert.True(t, errors.As(err, &permErr))
+	})
+
+	t.Run("TemplateMissing_ReturnsError", func(t *testing.T) {
+		gwClass := newGatewayClass(testControllerName)
+		gw := newGateway(gwClass.Name)
+
+		reconciler, _ := setupReconciler(gwClass, gw)
+		reconciler.TemplatePath = "/nonexistent/path"
+
+		// Reconcile should fail with permanent error
+		err := reconciler.reconcileLBDeployment(context.Background(), gw)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to load LB deployment template")
 
 		// Verify it's a permanent error
 		var permErr *permanentDeploymentError
