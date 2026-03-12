@@ -19,6 +19,7 @@ package nftables
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -334,7 +335,11 @@ func splitIPv4AndIPv6(cidrs []string) ([]string, []string) {
 		if err != nil {
 			continue
 		}
-		if ip.To4() != nil {
+		// Use To4() to check if it's IPv4 or IPv4-mapped IPv6
+		// For true IPv4, To4() returns 4-byte representation
+		// For IPv4-mapped IPv6 (::ffff:192.0.2.1), To4() also returns non-nil
+		// But we want to treat IPv4-mapped as IPv6, so check original length
+		if ip.To4() != nil && !strings.Contains(cidr, ":") {
 			ipv4 = append(ipv4, cidr)
 		} else {
 			ipv6 = append(ipv6, cidr)
