@@ -155,7 +155,7 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 .PHONY: deploy
 deploy: manifests kustomize cert-manager ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/controller-manager && "$(KUSTOMIZE)" edit set image controller-manager=$(REGISTRY)/controller-manager:$(VERSION_CONTROLLER_MANAGER)
+	cd config/controller-manager && "$(KUSTOMIZE)" edit set image controller-manager=controller-manager:$(VERSION_CONTROLLER_MANAGER)
 	cd config/default && "$(KUSTOMIZE)" edit set namespace $(NAMESPACE)
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
 

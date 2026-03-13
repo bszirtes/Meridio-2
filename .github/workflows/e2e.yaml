@@ -12,7 +12,7 @@ env:
   KIND_VERSION: v0.27.0
 
 jobs:
-  e2e:
+  kind:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     strategy:
@@ -39,9 +39,9 @@ jobs:
           kubectl cluster-info
       - name: Build and load image
         run: |
-          make docker-build IMG=controller:e2e
-          kind load docker-image controller:e2e --name kind
+          make controller-manager VERSION_CONTROLLER_MANAGER=e2e BUILD_STEPS=build
+          kind load docker-image controller-manager:e2e --name kind
       - name: Deploy
-        run: make deploy IMG=controller:e2e
+        run: make deploy VERSION_CONTROLLER_MANAGER=e2e
       - name: List pods
         run: kubectl get pods -A
