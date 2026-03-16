@@ -27,7 +27,24 @@ import (
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 )
 
-const fwmarkOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
+const (
+	baseOffset       = 5000 // Base offset for all fwmarks
+	offsetMultiplier = 1024 // Offset multiplier per DistributionGroup
+)
+
+// getFwmarkOffset calculates the fwmark offset for a DistributionGroup
+// Formula: DistributionGroup_ID * 1024 + 5000
+// DistributionGroup_ID is assigned sequentially (0, 1, 2, ...) to avoid collisions
+// Note: Caller must hold c.mu lock
+func (c *Controller) getFwmarkOffset(distGroupName string) int {
+	dgID, exists := c.dgIDs[distGroupName]
+	if !exists {
+		// Should not happen - ID assigned during instance creation
+		return baseOffset
+	}
+
+	return dgID*offsetMultiplier + baseOffset
+}
 
 // reconcileTargets synchronizes NFQLB targets from EndpointSlices.
 func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) error {
@@ -41,12 +58,15 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 		return nil
 	}
 
+	// Calculate fwmark offset for this DistributionGroup
+	fwmarkOffset := c.getFwmarkOffset(distGroup.Name)
+
 	// Get EndpointSlices for this DistributionGroup
 	endpointSliceList := &discoveryv1.EndpointSliceList{}
 	if err := c.List(ctx, endpointSliceList,
 		client.InNamespace(c.GatewayNamespace),
 		client.MatchingLabels{
-			"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+			"meridio-2.nordix.org/distribution-group": distGroup.Name,
 		}); err != nil {
 		return err
 	}
@@ -90,10 +110,15 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	for identifier := range currentTargets {
 		if _, exists := newTargets[identifier]; !exists {
 			index := identifier + 1 // NFQLB uses 1-based indexing
+			fwmark := identifier + fwmarkOffset
 			if err := instance.Deactivate(index); err != nil {
 				logr.Error(err, "Failed to deactivate target", "identifier", identifier)
 			} else {
 				logr.Info("Deactivated target", "distGroup", distGroup.Name, "identifier", identifier)
+			}
+			// Remove routing for this target
+			if err := c.routingManager.DeleteRoute(fwmark); err != nil {
+				logr.Error(err, "Failed to delete route", "fwmark", fwmark)
 			}
 		}
 	}
@@ -102,8 +127,20 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 	for identifier, ips := range newTargets {
 		index := identifier + 1             // NFQLB uses 1-based indexing
 		fwmark := identifier + fwmarkOffset // fwmark = identifier + offset
+
+		// Configure routing BEFORE activating target to prevent traffic loss
+		if len(ips) > 0 {
+			if err := c.routingManager.AddRoute(fwmark, ips[0]); err != nil {
+				logr.Error(err, "Failed to add route", "fwmark", fwmark, "targetIP", ips[0])
+				continue // Skip activation if routing fails
+			}
+		}
+
+		// Now activate target in NFQLB
 		if err := instance.Activate(index, fwmark); err != nil {
 			logr.Error(err, "Failed to activate target", "identifier", identifier, "ips", ips)
+			// Cleanup routing on activation failure
+			_ = c.routingManager.DeleteRoute(fwmark)
 		} else {
 			logr.Info("Activated target", "distGroup", distGroup.Name, "identifier", identifier, "ips", ips)
 		}
@@ -111,6 +148,19 @@ func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1
 
 	// Update tracked targets
 	c.targets[distGroup.Name] = newTargets
+
+	// Manage readiness file based on endpoint count
+	if len(newTargets) > 0 {
+		// At least one endpoint ready - create readiness file
+		if err := c.createReadinessFile(distGroup.Name); err != nil {
+			logr.Error(err, "Failed to create readiness file", "distGroup", distGroup.Name)
+		}
+	} else {
+		// No endpoints ready - remove readiness file
+		if err := c.removeReadinessFile(distGroup.Name); err != nil {
+			logr.Error(err, "Failed to remove readiness file", "distGroup", distGroup.Name)
+		}
+	}
 
 	logr.Info("Reconciled targets", "distGroup", distGroup.Name, "count", len(newTargets))
 	return nil

@@ -51,23 +51,21 @@ RUN curl -L https://netfilter.org/projects/libmnl/files/libmnl-1.0.4.tar.bz2 > /
 FROM alpine:3.22
 ARG USER
 ARG UID
-ARG HOME=/home/${USER}
 
 RUN apk update && apk add iproute2 tcpdump nftables libcap
 
 RUN addgroup -g ${UID} ${USER} \
-  && adduser -D -h ${HOME} -u ${UID} -G ${USER} ${USER} \
-  && chown -R :root "${HOME}" && chmod -R g+s=u "${HOME}"
+  && adduser -D -u ${UID} -G ${USER} ${USER}
 
-WORKDIR ${HOME}
+WORKDIR /app
 COPY --from=builder /workspace/stateless-load-balancer .
 COPY --from=nfqlb-build /bin/nfqlb /bin/nfqlb
 
 # Set capabilities for network operations
-RUN setcap 'cap_net_admin+ep' ./stateless-load-balancer \
+RUN setcap 'cap_net_admin+ep' /app/stateless-load-balancer \
   && chown root:root /bin/nfqlb && setcap 'cap_net_admin,cap_ipc_lock,cap_ipc_owner+ep' /bin/nfqlb \
   && setcap 'cap_net_admin+ep' /usr/sbin/nft
 
 USER ${UID}:${UID}
 
-ENTRYPOINT ["./stateless-load-balancer", "run"]
+ENTRYPOINT ["/app/stateless-load-balancer", "run"]

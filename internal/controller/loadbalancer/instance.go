@@ -40,10 +40,25 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 	if c.targets == nil {
 		c.targets = make(map[string]map[int][]string)
 	}
+	if c.dgIDs == nil {
+		c.dgIDs = make(map[string]int)
+	}
 
 	// Check if instance already exists
 	if _, exists := c.instances[distGroup.Name]; exists {
 		return nil
+	}
+
+	// Assign ID if not already assigned
+	if _, exists := c.dgIDs[distGroup.Name]; !exists {
+		// Reuse freed ID if available, otherwise use nextID
+		if len(c.freedIDs) > 0 {
+			c.dgIDs[distGroup.Name] = c.freedIDs[0]
+			c.freedIDs = c.freedIDs[1:]
+		} else {
+			c.dgIDs[distGroup.Name] = c.nextID
+			c.nextID++
+		}
 	}
 
 	// Calculate M and N parameters for Maglev
@@ -68,6 +83,7 @@ func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meri
 
 	c.instances[distGroup.Name] = instance
 	c.targets[distGroup.Name] = make(map[int][]string)
+
 	logr.Info("Created NFQLB instance", "distGroup", distGroup.Name, "M", m, "N", n)
 
 	return nil

@@ -7,5 +7,5 @@ resources:
 
 images:
 - name: controller-manager
-  newName: controller-manager
-  newTag: latest
+  newName: registry.nordix.org/cloud-native/meridio-2/controller-manager
+  newTag: test

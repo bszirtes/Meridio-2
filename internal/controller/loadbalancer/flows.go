@@ -19,12 +19,14 @@ package loadbalancer
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	nspAPI "github.com/nordix/meridio/api/nsp/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 )
@@ -66,7 +68,20 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 		return err
 	}
 
-	// Delete removed flows
+	// BUG FIX #2: Handle empty L34Route list
+	if len(newFlows) == 0 {
+		logr.Info("No L34Routes found, deleting all flows", "distGroup", distGroup.Name)
+		if err := c.deleteAllFlows(ctx, instance, distGroup.Name); err != nil {
+			logr.Error(err, "Failed to delete all flows")
+		}
+		// Clear nftables VIPs
+		if err := c.configureNftables(ctx, distGroup.Name, []string{}); err != nil {
+			logr.Error(err, "Failed to clear nftables VIPs")
+		}
+		return nil
+	}
+
+	// Delete removed flows first
 	currentFlows := c.flows[distGroup.Name]
 	var errFinal error
 	for flowName := range currentFlows {
@@ -81,25 +96,34 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 		}
 	}
 
-	// Add/update flows
+	// IMPROVEMENT #5: Add/update flows BEFORE configuring nftables
+	successfulFlows := make(map[string]*meridio2v1alpha1.L34Route)
 	for flowName, route := range newFlows {
 		flow := c.convertL34RouteToFlow(route)
 		if err := instance.SetFlow(flow); err != nil {
 			logr.Error(err, "Failed to set flow", "flow", flowName)
-			// TODO(P2): Detect NFQLB capacity errors and update DistributionGroup status
-			// if strings.Contains(err.Error(), "capacity exceeded") {
-			//     return fmt.Errorf("NFQLB capacity exceeded: %w", err)
-			// }
 			errFinal = fmt.Errorf("%w; failed to set flow %s: %w", errFinal, flowName, err)
 		} else {
 			logr.Info("Configured flow", "distGroup", distGroup.Name, "flow", flowName)
+			successfulFlows[flowName] = route
 		}
 	}
 
-	// Update tracked flows
-	c.flows[distGroup.Name] = newFlows
+	// Configure nftables with VIPs from Gateway status
+	vips, err := c.getGatewayVIPs(ctx)
+	if err != nil {
+		logr.Error(err, "Failed to get Gateway VIPs", "distGroup", distGroup.Name)
+		return fmt.Errorf("failed to get Gateway VIPs: %w", err)
+	}
+	if err := c.configureNftables(ctx, distGroup.Name, vips); err != nil {
+		logr.Error(err, "Failed to configure nftables", "distGroup", distGroup.Name)
+		return fmt.Errorf("failed to configure nftables: %w", err)
+	}
 
-	logr.Info("Reconciled flows", "distGroup", distGroup.Name, "count", len(newFlows))
+	// BUG FIX #3: Update tracked flows with only successful ones
+	c.flows[distGroup.Name] = successfulFlows
+
+	logr.Info("Reconciled flows", "distGroup", distGroup.Name, "count", len(successfulFlows))
 	return errFinal
 }
 
@@ -107,14 +131,28 @@ func (c *Controller) reconcileFlows(ctx context.Context, distGroup *meridio2v1al
 func (c *Controller) hasReadyEndpoints(ctx context.Context, distGroupName string) (bool, error) {
 	endpointSliceList := &discoveryv1.EndpointSliceList{}
 	if err := c.List(ctx, endpointSliceList,
-		client.InNamespace(c.GatewayNamespace),
-		client.MatchingLabels{
-			"meridio-2.nordix.org/distributiongroup": distGroupName,
-		}); err != nil {
+		client.InNamespace(c.GatewayNamespace)); err != nil {
 		return false, err
 	}
 
+	// Check EndpointSlices owned by this DistributionGroup
 	for _, eps := range endpointSliceList.Items {
+		// Check if owned by this DistributionGroup
+		isOwned := false
+		for _, ownerRef := range eps.GetOwnerReferences() {
+			if ownerRef.APIVersion == meridio2v1alpha1.GroupVersion.String() &&
+				ownerRef.Kind == kindDistributionGroup &&
+				ownerRef.Name == distGroupName &&
+				ownerRef.Controller != nil && *ownerRef.Controller {
+				isOwned = true
+				break
+			}
+		}
+		if !isOwned {
+			continue
+		}
+
+		// Check for ready endpoints
 		for _, endpoint := range eps.Endpoints {
 			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
 				return true, nil
@@ -185,8 +223,29 @@ func (c *Controller) listMatchingL34Routes(ctx context.Context, distGroup *merid
 // referencesGateway checks if L34Route references this Gateway.
 func (c *Controller) referencesGateway(route *meridio2v1alpha1.L34Route) bool {
 	for _, parentRef := range route.Spec.ParentRefs {
-		if string(parentRef.Name) == c.GatewayName &&
-			(parentRef.Namespace == nil || string(*parentRef.Namespace) == c.GatewayNamespace) {
+		// Default Group to "gateway.networking.k8s.io" when unspecified
+		group := "gateway.networking.k8s.io"
+		if parentRef.Group != nil {
+			group = string(*parentRef.Group)
+		}
+
+		// Default Kind to "Gateway" when unspecified
+		kind := "Gateway"
+		if parentRef.Kind != nil {
+			kind = string(*parentRef.Kind)
+		}
+
+		// Default Namespace to Route's namespace when unspecified
+		namespace := route.Namespace
+		if parentRef.Namespace != nil {
+			namespace = string(*parentRef.Namespace)
+		}
+
+		// Check if this parentRef matches our Gateway
+		if group == gatewayv1.GroupVersion.Group &&
+			kind == "Gateway" &&
+			string(parentRef.Name) == c.GatewayName &&
+			namespace == c.GatewayNamespace {
 			return true
 		}
 	}
@@ -232,4 +291,75 @@ func (c *Controller) convertL34RouteToFlow(route *meridio2v1alpha1.L34Route) *ns
 	flow.Vips = vips
 
 	return flow
+}
+
+// getGatewayVIPs extracts VIP addresses from Gateway status
+func (c *Controller) getGatewayVIPs(ctx context.Context) ([]string, error) {
+	gateway := &gatewayv1.Gateway{}
+	if err := c.Get(ctx, client.ObjectKey{
+		Name:      c.GatewayName,
+		Namespace: c.GatewayNamespace,
+	}, gateway); err != nil {
+		return nil, fmt.Errorf("failed to get Gateway: %w", err)
+	}
+
+	vips := []string{}
+	for _, addr := range gateway.Status.Addresses {
+		if addr.Type != nil && *addr.Type == gatewayv1.IPAddressType {
+			// Convert IP to CIDR format for nftables
+			cidr := addr.Value
+			if !strings.Contains(cidr, "/") {
+				// Detect IPv4 vs IPv6 and add appropriate prefix
+				if strings.Contains(cidr, ":") {
+					cidr += "/128" // IPv6
+				} else {
+					cidr += "/32" // IPv4
+				}
+			}
+			vips = append(vips, cidr)
+		}
+	}
+
+	return vips, nil
+}
+
+// configureNftables configures nftables rules for VIPs.
+// Only updates nftables if VIPs have changed to avoid unnecessary flushes.
+func (c *Controller) configureNftables(ctx context.Context, distGroupName string, vips []string) error {
+	logr := log.FromContext(ctx)
+
+	if c.nftManager == nil {
+		return fmt.Errorf("shared nftables manager not initialized")
+	}
+
+	// Check if VIPs have changed
+	if vipsEqual(c.currentVIPs, vips) {
+		return nil
+	}
+
+	if err := c.nftManager.SetVIPs(vips); err != nil {
+		return fmt.Errorf("failed to set VIPs in nftables: %w", err)
+	}
+
+	c.currentVIPs = append([]string{}, vips...) // Store copy
+	logr.Info("Configured nftables VIP rules", "distGroup", distGroupName, "vipCount", len(vips))
+	return nil
+}
+
+// vipsEqual compares two VIP slices for equality
+func vipsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	// Create maps for comparison (order-independent)
+	aMap := make(map[string]bool, len(a))
+	for _, v := range a {
+		aMap[v] = true
+	}
+	for _, v := range b {
+		if !aMap[v] {
+			return false
+		}
+	}
+	return true
 }

@@ -18,6 +18,7 @@ package loadbalancer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/google/nftables"
@@ -29,8 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
+	nftablesmanager "github.com/nordix/meridio-2/internal/nftables"
 )
 
 // Controller reconciles DistributionGroup resources to manage NFQLB instances.
@@ -51,20 +54,36 @@ import (
 // - Clear lifecycle: NFQLB instance lifecycle tied to DistributionGroup
 // - Architectural consistency: Matches Service/kube-proxy pattern
 // - Gateway filtering: Only reconciles DistributionGroups for this Gateway
+// - Shared nftables: Single table for all DGs prevents packet re-injection
+// - VIPs from Gateway: Gateway.status.addresses provides dynamic VIP set
 type Controller struct {
 	client.Client
-	Scheme           *runtime.Scheme
-	GatewayName      string
-	GatewayNamespace string
-	LBFactory        types.NFQueueLoadBalancerFactory
-	NFTConn          *nftables.Conn
-	NFTTable         *nftables.Table
-	NFTChain         *nftables.Chain
+	Scheme            *runtime.Scheme
+	GatewayName       string
+	GatewayNamespace  string
+	LBFactory         types.NFQueueLoadBalancerFactory
+	NFTConn           *nftables.Conn
+	NFTTable          *nftables.Table
+	NFTChain          *nftables.Chain
+	NftManagerFactory func(queueNum, queueTotal uint16) (nftablesManager, error)
 
-	mu        sync.Mutex
-	instances map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
-	targets   map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
-	flows     map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
+	mu             sync.Mutex
+	instances      map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
+	nftManager     nftablesManager                                  // Shared nftables manager for all DGs
+	routingManager *RoutingManager                                  // Manages policy routing for all targets
+	targets        map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
+	flows          map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
+	dgIDs          map[string]int                                   // key: DistributionGroup name -> ID (0, 1, 2, ...)
+	freedIDs       []int                                            // Pool of freed IDs for reuse
+	nextID         int                                              // Next available ID if no freed IDs
+	currentVIPs    []string                                         // Currently configured VIPs (to avoid redundant updates)
+}
+
+// nftablesManager interface for nftables operations
+type nftablesManager interface {
+	Setup() error
+	SetVIPs(cidrs []string) error
+	Cleanup() error
 }
 
 const kindDistributionGroup = "DistributionGroup"
@@ -76,21 +95,32 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	distGroup := &meridio2v1alpha1.DistributionGroup{}
 	if err := c.Get(ctx, req.NamespacedName, distGroup); err != nil {
 		if apierrors.IsNotFound(err) {
-			// DistributionGroup deleted - cleanup NFQLB instance
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			if _, exists := c.instances[req.Name]; exists {
-				logr.Info("Deleting NFQLB instance for deleted DistributionGroup", "distGroup", req.Name)
-				delete(c.instances, req.Name)
-				delete(c.targets, req.Name)
-			}
-			return ctrl.Result{}, nil
+			// DistributionGroup deleted - cleanup NFQLB instance and nftables
+			logr.Info("DistributionGroup deleted, cleaning up resources", "distGroup", req.Name)
+			return c.cleanupDistributionGroup(ctx, req.Name)
 		}
 		return ctrl.Result{}, err
 	}
 
 	// Filter: Only reconcile DistributionGroups for this Gateway
-	if !c.belongsToGateway(ctx, distGroup) {
+	belongs, err := c.belongsToGateway(ctx, distGroup)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to check Gateway membership: %w", err)
+	}
+	if !belongs {
+		// Check if we previously managed this DistributionGroup
+		c.mu.Lock()
+		_, wasManaged := c.instances[distGroup.Name]
+		c.mu.Unlock()
+
+		if wasManaged {
+			// DistributionGroup moved to another Gateway - cleanup local resources
+			logr.Info("DistributionGroup moved to another Gateway, cleaning up local resources",
+				"distGroup", distGroup.Name,
+				"gateway", c.GatewayName)
+			return c.cleanupDistributionGroup(ctx, distGroup.Name)
+		}
+
 		logr.V(1).Info("DistributionGroup does not belong to this Gateway, skipping",
 			"distGroup", distGroup.Name,
 			"gateway", c.GatewayName)
@@ -117,18 +147,50 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	// TODO: Update nftables VIP rules
-	// TODO: Write readiness file
+	return ctrl.Result{}, nil
+}
+
+// cleanupDistributionGroup removes all local resources for a DistributionGroup.
+// Used when DG is deleted or moved to another Gateway.
+func (c *Controller) cleanupDistributionGroup(ctx context.Context, distGroupName string) (ctrl.Result, error) {
+	logr := log.FromContext(ctx)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Cleanup NFQLB instance
+	if instance, exists := c.instances[distGroupName]; exists {
+		logr.Info("Deleting NFQLB instance", "distGroup", distGroupName)
+		if err := instance.Delete(); err != nil {
+			logr.Error(err, "Failed to delete NFQLB instance", "distGroup", distGroupName)
+		}
+		delete(c.instances, distGroupName)
+		delete(c.targets, distGroupName)
+		delete(c.flows, distGroupName)
+
+		// Return ID to freed pool for reuse
+		if id, exists := c.dgIDs[distGroupName]; exists {
+			c.freedIDs = append(c.freedIDs, id)
+			delete(c.dgIDs, distGroupName)
+		}
+	}
+
+	// Note: nftables manager is shared, not cleaned up per-DG
+
+	// Remove readiness file
+	if err := c.removeReadinessFile(distGroupName); err != nil {
+		logr.Error(err, "Failed to remove readiness file", "distGroup", distGroupName)
+	}
 
 	return ctrl.Result{}, nil
 }
 
 // belongsToGateway checks if a DistributionGroup belongs to this Gateway
 // by checking if any L34Route references both this Gateway and this DistributionGroup
-func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) bool {
+func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) (bool, error) {
 	l34routeList := &meridio2v1alpha1.L34RouteList{}
 	if err := c.List(ctx, l34routeList, client.InNamespace(c.GatewayNamespace)); err != nil {
-		return false
+		return false, fmt.Errorf("failed to list L34Routes: %w", err)
 	}
 
 	for i := range l34routeList.Items {
@@ -141,45 +203,132 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 
 		// Check if route references this DistributionGroup
 		for _, backendRef := range route.Spec.BackendRefs {
-			if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
-				backendRef.Kind != nil && string(*backendRef.Kind) == kindDistributionGroup &&
-				string(backendRef.Name) == distGroup.Name {
-				return true
+			// Default Group to "" (core API group) when unspecified
+			group := ""
+			if backendRef.Group != nil {
+				group = string(*backendRef.Group)
+			}
+
+			// Default Kind to "Service" when unspecified
+			kind := "Service"
+			if backendRef.Kind != nil {
+				kind = string(*backendRef.Kind)
+			}
+
+			// Default Namespace to Route's namespace when unspecified
+			namespace := route.Namespace
+			if backendRef.Namespace != nil {
+				namespace = string(*backendRef.Namespace)
+			}
+
+			// Check if this backendRef matches our DistributionGroup
+			if group == meridio2v1alpha1.GroupVersion.Group &&
+				kind == kindDistributionGroup &&
+				string(backendRef.Name) == distGroup.Name &&
+				namespace == distGroup.Namespace {
+				return true, nil
 			}
 		}
 	}
 
-	return false
+	return false, nil
+}
+
+// gatewayEnqueue enqueues reconcile requests for all DistributionGroups when Gateway status changes
+func (c *Controller) gatewayEnqueue(ctx context.Context, obj client.Object) []ctrl.Request {
+	// Only process our Gateway
+	if obj.GetName() != c.GatewayName || obj.GetNamespace() != c.GatewayNamespace {
+		return nil
+	}
+
+	// List all DistributionGroups
+	dgList := &meridio2v1alpha1.DistributionGroupList{}
+	if err := c.List(ctx, dgList); err != nil {
+		return nil
+	}
+
+	// Enqueue all DGs that reference this Gateway
+	requests := []ctrl.Request{}
+	for _, dg := range dgList.Items {
+		for _, parentRef := range dg.Spec.ParentRefs {
+			namespace := dg.Namespace
+			if parentRef.Namespace != nil {
+				namespace = *parentRef.Namespace
+			}
+
+			if parentRef.Name == c.GatewayName && namespace == c.GatewayNamespace {
+				requests = append(requests, ctrl.Request{
+					NamespacedName: client.ObjectKey{
+						Name:      dg.Name,
+						Namespace: dg.Namespace,
+					},
+				})
+				break
+			}
+		}
+	}
+
+	return requests
 }
 
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
+	// Initialize routing manager
+	c.routingManager = NewRoutingManager()
+
+	// Initialize shared nftables manager
+	var err error
+	if c.NftManagerFactory != nil {
+		c.nftManager, err = c.NftManagerFactory(0, 4)
+	} else {
+		c.nftManager, err = nftablesmanager.NewManager(0, 4)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create nftables manager: %w", err)
+	}
+
+	// Setup shared nftables table
+	if err := c.nftManager.Setup(); err != nil {
+		// Cleanup partially created resources
+		_ = c.nftManager.Cleanup()
+		return fmt.Errorf("failed to setup nftables: %w", err)
+	}
+
+	// Clean up readiness directory on startup
+	if err := c.cleanupReadinessDir(); err != nil {
+		return fmt.Errorf("failed to cleanup readiness directory: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&meridio2v1alpha1.DistributionGroup{}).
 		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(c.endpointSliceEnqueue)).
 		Watches(&meridio2v1alpha1.L34Route{}, handler.EnqueueRequestsFromMapFunc(c.l34RouteEnqueue)).
+		Watches(&gatewayv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(c.gatewayEnqueue)).
 		Named("loadbalancer").
 		Complete(c)
 }
 
 // endpointSliceEnqueue maps EndpointSlice events to DistributionGroup reconcile requests
 func (c *Controller) endpointSliceEnqueue(ctx context.Context, obj client.Object) []ctrl.Request {
-	// EndpointSlices are labeled with meridio-2.nordix.org/distributiongroup = DistributionGroup name
-	distGroupName := obj.GetLabels()["meridio-2.nordix.org/distributiongroup"]
-	if distGroupName == "" {
-		return nil
+	// EndpointSlices have OwnerReference to their DistributionGroup
+	for _, ownerRef := range obj.GetOwnerReferences() {
+		if ownerRef.APIVersion == meridio2v1alpha1.GroupVersion.String() &&
+			ownerRef.Kind == kindDistributionGroup &&
+			ownerRef.Controller != nil && *ownerRef.Controller {
+			// Only trigger if in our namespace
+			if obj.GetNamespace() != c.GatewayNamespace {
+				return nil
+			}
+
+			return []ctrl.Request{{
+				NamespacedName: client.ObjectKey{
+					Name:      ownerRef.Name,
+					Namespace: obj.GetNamespace(),
+				},
+			}}
+		}
 	}
 
-	// Only trigger if in our namespace
-	if obj.GetNamespace() != c.GatewayNamespace {
-		return nil
-	}
-
-	return []ctrl.Request{{
-		NamespacedName: client.ObjectKey{
-			Name:      distGroupName,
-			Namespace: obj.GetNamespace(),
-		},
-	}}
+	return nil
 }
 
 // l34RouteEnqueue maps L34Route events to DistributionGroup reconcile requests
@@ -197,12 +346,31 @@ func (c *Controller) l34RouteEnqueue(ctx context.Context, obj client.Object) []c
 	// Enqueue all DistributionGroups referenced by this route
 	var requests []ctrl.Request
 	for _, backendRef := range route.Spec.BackendRefs {
-		if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
-			backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" {
+		// Default Group to "" (core API group) when unspecified
+		group := ""
+		if backendRef.Group != nil {
+			group = string(*backendRef.Group)
+		}
+
+		// Default Kind to "Service" when unspecified
+		kind := "Service"
+		if backendRef.Kind != nil {
+			kind = string(*backendRef.Kind)
+		}
+
+		// Default Namespace to Route's namespace when unspecified
+		namespace := route.Namespace
+		if backendRef.Namespace != nil {
+			namespace = string(*backendRef.Namespace)
+		}
+
+		// Check if this backendRef is a DistributionGroup
+		if group == meridio2v1alpha1.GroupVersion.Group &&
+			kind == kindDistributionGroup {
 			requests = append(requests, ctrl.Request{
 				NamespacedName: client.ObjectKey{
 					Name:      string(backendRef.Name),
-					Namespace: c.GatewayNamespace,
+					Namespace: namespace,
 				},
 			})
 		}

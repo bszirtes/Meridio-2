@@ -27,8 +27,10 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
@@ -134,7 +136,16 @@ var _ = Describe("LoadBalancer Controller", func() {
 			GatewayName:      gatewayName,
 			GatewayNamespace: namespace,
 			LBFactory:        mockFactory,
+			routingManager:   NewMockRoutingManager(),
+			NftManagerFactory: func(queueNum, queueTotal uint16) (nftablesManager, error) {
+				return newMockNftablesManager(), nil
+			},
 		}
+
+		// Initialize shared nftManager
+		var err error
+		controller.nftManager, err = controller.NftManagerFactory(0, 4)
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	Describe("belongsToGateway", func() {
@@ -177,7 +188,8 @@ var _ = Describe("LoadBalancer Controller", func() {
 				Build()
 			controller.Client = fakeClient
 
-			result := controller.belongsToGateway(ctx, distGroup)
+			result, err := controller.belongsToGateway(ctx, distGroup)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeTrue())
 		})
 
@@ -194,7 +206,8 @@ var _ = Describe("LoadBalancer Controller", func() {
 				Build()
 			controller.Client = fakeClient
 
-			result := controller.belongsToGateway(ctx, distGroup)
+			result, err := controller.belongsToGateway(ctx, distGroup)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
 
@@ -237,7 +250,8 @@ var _ = Describe("LoadBalancer Controller", func() {
 				Build()
 			controller.Client = fakeClient
 
-			result := controller.belongsToGateway(ctx, distGroup)
+			result, err := controller.belongsToGateway(ctx, distGroup)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(BeFalse())
 		})
 	})
@@ -310,6 +324,60 @@ var _ = Describe("LoadBalancer Controller", func() {
 			// Should be same instance
 			Expect(firstInstance).To(BeIdenticalTo(secondInstance))
 		})
+
+		It("should assign sequential IDs without collisions", func() {
+			dg1 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-1", Namespace: namespace},
+			}
+			dg2 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-2", Namespace: namespace},
+			}
+			dg3 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-3", Namespace: namespace},
+			}
+
+			// Create instances
+			Expect(controller.reconcileNFQLBInstance(ctx, dg1)).To(Succeed())
+			Expect(controller.reconcileNFQLBInstance(ctx, dg2)).To(Succeed())
+			Expect(controller.reconcileNFQLBInstance(ctx, dg3)).To(Succeed())
+
+			// Verify sequential IDs
+			Expect(controller.dgIDs["dg-1"]).To(Equal(0))
+			Expect(controller.dgIDs["dg-2"]).To(Equal(1))
+			Expect(controller.dgIDs["dg-3"]).To(Equal(2))
+			Expect(controller.nextID).To(Equal(3))
+		})
+
+		It("should reuse freed IDs", func() {
+			dg1 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-1", Namespace: namespace},
+			}
+			dg2 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-2", Namespace: namespace},
+			}
+			dg3 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-3", Namespace: namespace},
+			}
+
+			// Create three instances (IDs: 0, 1, 2)
+			Expect(controller.reconcileNFQLBInstance(ctx, dg1)).To(Succeed())
+			Expect(controller.reconcileNFQLBInstance(ctx, dg2)).To(Succeed())
+			Expect(controller.reconcileNFQLBInstance(ctx, dg3)).To(Succeed())
+
+			// Delete dg-2 (frees ID 1)
+			_, err := controller.cleanupDistributionGroup(ctx, "dg-2")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(controller.freedIDs).To(ContainElement(1))
+
+			// Create new DG - should reuse ID 1
+			dg4 := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "dg-4", Namespace: namespace},
+			}
+			Expect(controller.reconcileNFQLBInstance(ctx, dg4)).To(Succeed())
+			Expect(controller.dgIDs["dg-4"]).To(Equal(1))
+			Expect(controller.freedIDs).To(BeEmpty())
+			Expect(controller.nextID).To(Equal(3)) // Should not increment
+		})
 	})
 
 	Describe("reconcileTargets", func() {
@@ -337,7 +405,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -367,14 +443,17 @@ var _ = Describe("LoadBalancer Controller", func() {
 			err := controller.reconcileTargets(ctx, distGroup)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Calculate expected fwmark offset for this DistributionGroup
+			expectedOffset := controller.getFwmarkOffset(distGroup.Name)
+
 			// Verify targets were activated with correct fwmark
-			// identifier=0 -> index=1, fwmark=5000
-			// identifier=1 -> index=2, fwmark=5001
+			// identifier=0 -> index=1, fwmark=offset+0
+			// identifier=1 -> index=2, fwmark=offset+1
 			mockInstance := mockFactory.instances[distGroup.Name]
-			Expect(mockInstance.activatedTargets).To(HaveKey(5000))  // fwmark = 0 + 5000
-			Expect(mockInstance.activatedTargets[5000]).To(Equal(1)) // index = 0 + 1
-			Expect(mockInstance.activatedTargets).To(HaveKey(5001))  // fwmark = 1 + 5000
-			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset))     // fwmark = 0 + offset
+			Expect(mockInstance.activatedTargets[expectedOffset]).To(Equal(1))    // index = 0 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset + 1)) // fwmark = 1 + offset
+			Expect(mockInstance.activatedTargets[expectedOffset+1]).To(Equal(2))  // index = 1 + 1
 		})
 
 		It("should skip endpoints without Zone field", func() {
@@ -384,7 +463,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -420,7 +507,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -479,7 +574,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -509,12 +612,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 			err := controller.reconcileTargets(ctx, distGroup)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Calculate expected fwmark offset for this DistributionGroup
+			expectedOffset := controller.getFwmarkOffset(distGroup.Name)
+
 			// Verify targets were activated with correct identifiers
 			mockInstance := mockFactory.instances[distGroup.Name]
-			Expect(mockInstance.activatedTargets).To(HaveKey(5000))  // fwmark = 0 + 5000
-			Expect(mockInstance.activatedTargets[5000]).To(Equal(1)) // index = 0 + 1
-			Expect(mockInstance.activatedTargets).To(HaveKey(5001))  // fwmark = 1 + 5000
-			Expect(mockInstance.activatedTargets[5001]).To(Equal(2)) // index = 1 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset))     // fwmark = 0 + offset
+			Expect(mockInstance.activatedTargets[expectedOffset]).To(Equal(1))    // index = 0 + 1
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset + 1)) // fwmark = 1 + offset
+			Expect(mockInstance.activatedTargets[expectedOffset+1]).To(Equal(2))  // index = 1 + 1
 		})
 
 		It("should skip endpoints with invalid Zone format", func() {
@@ -526,7 +632,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -556,10 +670,13 @@ var _ = Describe("LoadBalancer Controller", func() {
 			err := controller.reconcileTargets(ctx, distGroup)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Calculate expected fwmark offset for this DistributionGroup
+			expectedOffset := controller.getFwmarkOffset(distGroup.Name)
+
 			// Only valid endpoint should be activated
 			mockInstance := mockFactory.instances[distGroup.Name]
 			Expect(mockInstance.activatedTargets).To(HaveLen(1))
-			Expect(mockInstance.activatedTargets).To(HaveKey(5000)) // Only maglev:0
+			Expect(mockInstance.activatedTargets).To(HaveKey(expectedOffset)) // Only maglev:0
 		})
 	})
 
@@ -591,7 +708,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -632,9 +757,23 @@ var _ = Describe("LoadBalancer Controller", func() {
 				},
 			}
 
+			// Create Gateway with VIPs in status
+			ipAddrType := gatewayv1.IPAddressType
+			gateway := &gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      gatewayName,
+					Namespace: namespace,
+				},
+				Status: gatewayv1.GatewayStatus{
+					Addresses: []gatewayv1.GatewayStatusAddress{
+						{Type: &ipAddrType, Value: "20.0.0.1"},
+					},
+				},
+			}
+
 			fakeClient = fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(distGroup, endpointSlice, l34route).
+				WithObjects(distGroup, endpointSlice, l34route, gateway).
 				Build()
 			controller.Client = fakeClient
 
@@ -672,7 +811,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": distGroup.Name,
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       distGroup.Name,
+							Controller: ptr.To(true),
+						},
 					},
 				},
 				Endpoints: []discoveryv1.Endpoint{
@@ -736,9 +883,24 @@ var _ = Describe("LoadBalancer Controller", func() {
 				},
 			}
 
+			// Create Gateway with VIPs in status
+			ipAddrType := gatewayv1.IPAddressType
+			gateway := &gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      gatewayName,
+					Namespace: namespace,
+				},
+				Status: gatewayv1.GatewayStatus{
+					Addresses: []gatewayv1.GatewayStatusAddress{
+						{Type: &ipAddrType, Value: "20.0.0.1"},
+						{Type: &ipAddrType, Value: "20.0.0.2"},
+					},
+				},
+			}
+
 			fakeClient = fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(distGroup, endpointSlice, l34route1, l34route2).
+				WithObjects(distGroup, endpointSlice, l34route1, l34route2, gateway).
 				Build()
 			controller.Client = fakeClient
 
@@ -921,13 +1083,22 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": "test-distgroup",
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       "test-distgroup",
+							Controller: ptr.To(true),
+						},
 					},
 				},
 			}
 
 			requests := controller.endpointSliceEnqueue(ctx, endpointSlice)
 			Expect(requests).To(HaveLen(1))
+			Expect(requests[0].Name).To(Equal("test-distgroup"))
 			Expect(requests[0].Name).To(Equal("test-distgroup"))
 			Expect(requests[0].Namespace).To(Equal(namespace))
 		})
@@ -951,7 +1122,15 @@ var _ = Describe("LoadBalancer Controller", func() {
 					Name:      "test-eps",
 					Namespace: "other-namespace",
 					Labels: map[string]string{
-						"meridio-2.nordix.org/distributiongroup": "test-distgroup",
+						"meridio-2.nordix.org/distribution-group": "test-distgroup",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "meridio-2.nordix.org/v1alpha1",
+							Kind:       "DistributionGroup",
+							Name:       "test-distgroup",
+							Controller: ptr.To(true),
+						},
 					},
 				},
 			}
@@ -1085,6 +1264,68 @@ var _ = Describe("LoadBalancer Controller", func() {
 			Expect(requests).To(HaveLen(2))
 			Expect(requests[0].Name).To(Equal("distgroup-1"))
 			Expect(requests[1].Name).To(Equal("distgroup-2"))
+		})
+	})
+
+	Describe("Instance cleanup on deletion", func() {
+		It("should call Delete() and cleanup all state when DistributionGroup is deleted", func() {
+			distGroup := &meridio2v1alpha1.DistributionGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-distgroup",
+					Namespace: namespace,
+				},
+			}
+
+			// Create a mock instance
+			mockInstance := &mockNFQLBInstance{
+				name:  distGroup.Name,
+				flows: make(map[string]*nspAPI.Flow),
+			}
+
+			// Initialize mockFactory instances map
+			if mockFactory.instances == nil {
+				mockFactory.instances = make(map[string]*mockNFQLBInstance)
+			}
+			mockFactory.instances[distGroup.Name] = mockInstance
+
+			// Create mock nftables manager
+			mockNftMgr := newMockNftablesManager()
+
+			// Initialize controller maps
+			if controller.instances == nil {
+				controller.instances = make(map[string]types.NFQueueLoadBalancer)
+			}
+			if controller.flows == nil {
+				controller.flows = make(map[string]map[string]*meridio2v1alpha1.L34Route)
+			}
+			if controller.targets == nil {
+				controller.targets = make(map[string]map[int][]string)
+			}
+
+			controller.instances[distGroup.Name] = mockInstance
+			controller.nftManager = mockNftMgr // Use shared manager
+			controller.flows[distGroup.Name] = make(map[string]*meridio2v1alpha1.L34Route)
+			controller.targets[distGroup.Name] = make(map[int][]string)
+
+			// Simulate DistributionGroup deletion by returning NotFound
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				Build()
+			controller.Client = fakeClient
+
+			// Reconcile with non-existent DistributionGroup
+			result, err := controller.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKey{Name: distGroup.Name},
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).To(Equal(reconcile.Result{}))
+
+			// Verify all state cleaned up
+			Expect(controller.instances).ToNot(HaveKey(distGroup.Name))
+			// Note: nftManager is shared, not cleaned up per-DG
+			Expect(controller.flows).ToNot(HaveKey(distGroup.Name))
+			Expect(controller.targets).ToNot(HaveKey(distGroup.Name))
 		})
 	})
 })
