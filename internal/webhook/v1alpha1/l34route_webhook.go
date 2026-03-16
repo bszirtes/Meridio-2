@@ -158,11 +158,11 @@ func getIPFamilySet(cidrs []string) (string, error) {
 	return "", fmt.Errorf("unable to determine IP family from CIDRs")
 }
 
-// validateCIDRs checks for overlapping CIDRs
+// validateCIDRs checks for overlapping CIDRs and validates prefix format
 func validateCIDRs(cidrs []string) (string, error) {
 	allNonOverlappingCIDRs := make([]*net.IPNet, 0, len(cidrs))
 	for i, c := range cidrs {
-		_, n, err := net.ParseCIDR(c)
+		n, err := validatePrefix(c)
 		if err != nil {
 			return c, fmt.Errorf("[%d]: %s", i, err.Error())
 		}
@@ -175,6 +175,18 @@ func validateCIDRs(cidrs []string) (string, error) {
 		allNonOverlappingCIDRs = append(allNonOverlappingCIDRs, n)
 	}
 	return "", nil
+}
+
+// validatePrefix ensures the CIDR is a valid network prefix
+func validatePrefix(p string) (*net.IPNet, error) {
+	ip, n, err := net.ParseCIDR(p)
+	if err != nil {
+		return nil, err
+	}
+	if !ip.Equal(n.IP) {
+		return nil, fmt.Errorf("%s is not a valid prefix, probably %v should be used", p, n)
+	}
+	return n, nil
 }
 
 func cidrsOverlap(a, b *net.IPNet) bool {

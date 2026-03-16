@@ -18,8 +18,6 @@ package loadbalancer
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 	"sync"
 
 	"github.com/google/nftables"
@@ -64,11 +62,12 @@ type Controller struct {
 	NFTChain         *nftables.Chain
 
 	mu        sync.Mutex
-	instances map[string]types.NFQueueLoadBalancer // key: DistributionGroup name
-	targets   map[string]map[int][]string          // key: DistributionGroup name -> identifier -> IPs
+	instances map[string]types.NFQueueLoadBalancer             // key: DistributionGroup name
+	targets   map[string]map[int][]string                      // key: DistributionGroup name -> identifier -> IPs
+	flows     map[string]map[string]*meridio2v1alpha1.L34Route // key: DistributionGroup name -> L34Route name
 }
 
-const identifierOffset = 5000 // TODO: port identifierOffsetGenerator from Meridio
+const kindDistributionGroup = "DistributionGroup"
 
 func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logr := log.FromContext(ctx)
@@ -112,7 +111,12 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	// TODO: Reconcile flows from L34Routes
+	// Reconcile flows from L34Routes
+	if err := c.reconcileFlows(ctx, distGroup); err != nil {
+		logr.Error(err, "Failed to reconcile flows")
+		return ctrl.Result{}, err
+	}
+
 	// TODO: Update nftables VIP rules
 	// TODO: Write readiness file
 
@@ -131,23 +135,14 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 		route := &l34routeList.Items[i]
 
 		// Check if route references this Gateway
-		referencesGateway := false
-		for _, parentRef := range route.Spec.ParentRefs {
-			if string(parentRef.Name) == c.GatewayName &&
-				(parentRef.Namespace == nil || string(*parentRef.Namespace) == c.GatewayNamespace) {
-				referencesGateway = true
-				break
-			}
-		}
-
-		if !referencesGateway {
+		if !c.referencesGateway(route) {
 			continue
 		}
 
 		// Check if route references this DistributionGroup
 		for _, backendRef := range route.Spec.BackendRefs {
 			if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
-				backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" &&
+				backendRef.Kind != nil && string(*backendRef.Kind) == kindDistributionGroup &&
 				string(backendRef.Name) == distGroup.Name {
 				return true
 			}
@@ -157,141 +152,11 @@ func (c *Controller) belongsToGateway(ctx context.Context, distGroup *meridio2v1
 	return false
 }
 
-func (c *Controller) reconcileNFQLBInstance(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) error {
-	logr := log.FromContext(ctx)
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Initialize maps if needed
-	if c.instances == nil {
-		c.instances = make(map[string]types.NFQueueLoadBalancer)
-	}
-	if c.targets == nil {
-		c.targets = make(map[string]map[int][]string)
-	}
-
-	// Check if instance already exists
-	if _, exists := c.instances[distGroup.Name]; exists {
-		return nil
-	}
-
-	// Get Maglev parameters
-	n := int32(32) // default MaxEndpoints
-	if distGroup.Spec.Maglev != nil {
-		n = distGroup.Spec.Maglev.MaxEndpoints
-	}
-	m := int(n * 100) // M = N × 100
-
-	// Create NFQLB instance
-	instance, err := c.LBFactory.New(distGroup.Name, m, int(n))
-	if err != nil {
-		return err
-	}
-
-	// Start the instance to create shared memory
-	if err := instance.Start(); err != nil {
-		logr.Error(err, fmt.Sprintf("failed to start NFQLB instance, distGroup: %s", distGroup.Name))
-		return err
-	}
-
-	c.instances[distGroup.Name] = instance
-	c.targets[distGroup.Name] = make(map[int][]string)
-
-	logr.Info(fmt.Sprintf("Created NFQLB instance, distGroup: %s, M: %d, N: %d", distGroup.Name, m, n))
-	return nil
-}
-
-func (c *Controller) reconcileTargets(ctx context.Context, distGroup *meridio2v1alpha1.DistributionGroup) error {
-	logr := log.FromContext(ctx)
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	instance, exists := c.instances[distGroup.Name]
-	if !exists {
-		return nil
-	}
-
-	// Get EndpointSlices for this DistributionGroup
-	endpointSliceList := &discoveryv1.EndpointSliceList{}
-	if err := c.List(ctx, endpointSliceList,
-		client.InNamespace(c.GatewayNamespace),
-		client.MatchingLabels{
-			"meridio-2.nordix.org/distributiongroup": distGroup.Name,
-		}); err != nil {
-		return err
-	}
-
-	// Get current targets
-	currentTargets := c.targets[distGroup.Name]
-	if currentTargets == nil {
-		currentTargets = make(map[int][]string)
-		c.targets[distGroup.Name] = currentTargets
-	}
-
-	// Build new targets map from EndpointSlices
-	newTargets := make(map[int][]string)
-	for _, eps := range endpointSliceList.Items {
-		for _, endpoint := range eps.Endpoints {
-			if endpoint.Conditions.Ready == nil || !*endpoint.Conditions.Ready {
-				continue
-			}
-			if endpoint.Zone == nil {
-				logr.V(1).Info("Endpoint missing identifier (Zone field)", "addresses", endpoint.Addresses)
-				continue
-			}
-
-			// Parse Zone field - support both "maglev:N" and plain "N" formats
-			zoneStr := *endpoint.Zone
-			if len(zoneStr) > 7 && zoneStr[:7] == "maglev:" {
-				zoneStr = zoneStr[7:] // Strip "maglev:" prefix
-			}
-
-			identifier, err := strconv.Atoi(zoneStr)
-			if err != nil {
-				logr.Error(err, "Invalid identifier in Zone field", "zone", *endpoint.Zone)
-				continue
-			}
-			newTargets[identifier] = endpoint.Addresses
-		}
-	}
-
-	// Deactivate removed targets
-	for identifier := range currentTargets {
-		if _, exists := newTargets[identifier]; !exists {
-			if err := instance.Deactivate(identifier + 1); err != nil {
-				logr.Error(err, "Failed to deactivate target", "identifier", identifier)
-			} else {
-				logr.Info("Deactivated target", "distGroup", distGroup.Name, "identifier", identifier)
-			}
-		}
-	}
-
-	// Activate new targets
-	for identifier, ips := range newTargets {
-		if _, exists := currentTargets[identifier]; !exists {
-			// NFQLB expects 1-based index, so add 1 to 0-based identifier
-			// Fwmark is identifier + offset for routing
-			if err := instance.Activate(identifier+1, identifier+identifierOffset); err != nil {
-				logr.Error(err, "Failed to activate target", "identifier", identifier, "ips", ips)
-			} else {
-				logr.Info("Activated target", "distGroup", distGroup.Name, "identifier", identifier, "ips", ips)
-			}
-		}
-	}
-
-	// Update tracked targets
-	c.targets[distGroup.Name] = newTargets
-
-	logr.Info("Reconciled targets", "distGroup", distGroup.Name, "count", len(newTargets))
-	return nil
-}
-
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&meridio2v1alpha1.DistributionGroup{}).
 		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(c.endpointSliceEnqueue)).
+		Watches(&meridio2v1alpha1.L34Route{}, handler.EnqueueRequestsFromMapFunc(c.l34RouteEnqueue)).
 		Named("loadbalancer").
 		Complete(c)
 }
@@ -315,4 +180,33 @@ func (c *Controller) endpointSliceEnqueue(ctx context.Context, obj client.Object
 			Namespace: obj.GetNamespace(),
 		},
 	}}
+}
+
+// l34RouteEnqueue maps L34Route events to DistributionGroup reconcile requests
+func (c *Controller) l34RouteEnqueue(ctx context.Context, obj client.Object) []ctrl.Request {
+	route, ok := obj.(*meridio2v1alpha1.L34Route)
+	if !ok {
+		return nil
+	}
+
+	// Check if route references this Gateway
+	if !c.referencesGateway(route) {
+		return nil
+	}
+
+	// Enqueue all DistributionGroups referenced by this route
+	var requests []ctrl.Request
+	for _, backendRef := range route.Spec.BackendRefs {
+		if backendRef.Group != nil && string(*backendRef.Group) == meridio2v1alpha1.GroupVersion.Group &&
+			backendRef.Kind != nil && string(*backendRef.Kind) == "DistributionGroup" {
+			requests = append(requests, ctrl.Request{
+				NamespacedName: client.ObjectKey{
+					Name:      string(backendRef.Name),
+					Namespace: c.GatewayNamespace,
+				},
+			})
+		}
+	}
+
+	return requests
 }
