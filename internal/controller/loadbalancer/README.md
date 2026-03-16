@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LoadBalancer controller manages NFQLB (nfqueue-loadbalancer) instances for traffic distribution within a Gateway. It watches DistributionGroup resources and creates corresponding NFQLB shared-memory instances.
+The LoadBalancer controller manages NFQLB (nfqueue-loadbalancer) instances for traffic distribution within a Gateway. It watches DistributionGroup resources and creates corresponding NFQLB shared-memory instances, configures policy routing, nftables rules, and readiness signaling.
 
 ## Architecture
 
@@ -11,6 +11,7 @@ The LoadBalancer controller manages NFQLB (nfqueue-loadbalancer) instances for t
 **One SLLB Pod per Gateway**:
 - Pod contains 2 containers: `stateless-load-balancer` + `router`
 - The `stateless-load-balancer` container runs the LoadBalancer controller
+- The `router` container runs Bird3 for BGP/routing protocol advertisement
 
 ### NFQLB Architecture
 
@@ -19,42 +20,48 @@ The LoadBalancer controller manages NFQLB (nfqueue-loadbalancer) instances for t
 - This single process manages **multiple shared-memory LB instances**
 
 **One shared-memory instance per DistributionGroup**:
-- Created via: `nfqlb init --shm=<distgroup-name> --M=<m> --N=<n>`
+- Created via: `nfqlb init --shm=tshm-<distgroup-name> --M=<m> --N=<n>`
 - Each instance is a **shared memory region** (not a separate process)
 - All instances are managed by the single `nfqlb flowlb` process
 
 ### Detailed Flow
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ SLLB Pod (per Gateway)                                      │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ stateless-load-balancer container                      │ │
-│  │                                                         │ │
-│  │  ONE nfqlb process (flowlb mode)                       │ │
-│  │  ├─ Listens on nfqueues 0-3                           │ │
-│  │  └─ Manages multiple shared-memory instances:         │ │
-│  │                                                         │ │
-│  │     DistributionGroup "web-backends"                   │ │
-│  │     ├─ Shared memory: /dev/shm/web-backends           │ │
-│  │     ├─ Maglev table: M=3200, N=32                     │ │
-│  │     └─ Targets: [10.0.1.1, 10.0.1.2, ...]            │ │
-│  │                                                         │ │
-│  │     DistributionGroup "api-backends"                   │ │
-│  │     ├─ Shared memory: /dev/shm/api-backends           │ │
-│  │     ├─ Maglev table: M=6400, N=64                     │ │
-│  │     └─ Targets: [10.0.2.1, 10.0.2.2, ...]            │ │
-│  │                                                         │ │
-│  │  LoadBalancer Controller                               │ │
-│  │  └─ Watches DistributionGroups                        │ │
-│  │     └─ Creates/deletes shared-memory instances        │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ router container (Bird2/FRR)                           │ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+                          ┌──────────────────────────────────────────────────────────┐
+                          │ SLLB Pod (per Gateway)                                   │
+                          │                                                          │
+                          │  ┌────────────────────────────────────────────────────┐  │
+  Incoming VIP traffic    │  │ stateless-load-balancer container                  │  │
+  ──────────────────────► │  │                                                     │  │
+                          │  │  nftables (prerouting)                             │  │
+                          │  │  ├─ Match VIP → queue to nfqueue 0-3              │  │
+                          │  │  │                                                 │  │
+                          │  │  ▼                                                 │  │
+                          │  │  nfqlb flowlb (single process)                    │  │
+                          │  │  ├─ Reads shared memory instances                  │  │
+                          │  │  ├─ Maglev hash → selects target                  │  │
+                          │  │  └─ Sets fwmark on packet                         │  │
+                          │  │                                                     │  │
+                          │  │  Policy routing (ip rule / ip route)               │  │
+                          │  │  ├─ fwmark 5000 → table 5000 → via target-1       │  │
+                          │  │  ├─ fwmark 5001 → table 5001 → via target-2  ─────┼──┼──► net1 (macvlan)
+                          │  │  └─ fwmark 5002 → table 5002 → via target-3       │  │    to targets
+                          │  │                                                     │  │
+                          │  │  LoadBalancer Controller                           │  │
+                          │  │  ├─ Watches DistributionGroups, L34Routes,         │  │
+                          │  │  │  EndpointSlices, Gateways                       │  │
+                          │  │  ├─ Creates/deletes shared-memory instances        │  │
+                          │  │  ├─ Configures nftables VIP rules                 │  │
+                          │  │  ├─ Configures policy routing per target           │  │
+                          │  │  └─ Writes readiness files                        │  │
+                          │  └────────────────────────────────────────────────────┘  │
+                          │                                                          │
+                          │  ┌────────────────────────────────────────────────────┐  │
+                          │  │ router container (Bird3)                           │  │
+                          │  │  ├─ Reads readiness files from shared volume       │  │
+                          │  │  └─ Advertises VIPs via BGP when ready             │  │
+                          │  └────────────────────────────────────────────────────┘  │
+                          └──────────────────────────────────────────────────────────┘
 ```
 
 ## Key Points
@@ -103,7 +110,7 @@ This ensures:
 
 For each DistributionGroup:
 - Creates shared-memory instance with Maglev parameters:
-  - **M** (table size): `MaxEndpoints × 100`
+  - **M** (table size): Nearest prime to `MaxEndpoints × 100`
   - **N** (max endpoints): From `DistributionGroup.Spec.Maglev.MaxEndpoints` (default: 32)
 - Tracks instances in memory map
 - Deletes instances when DistributionGroup is removed
@@ -111,31 +118,43 @@ For each DistributionGroup:
 ### 2. Target Management
 
 For each DistributionGroup:
-- Watches EndpointSlices (labeled with `kubernetes.io/service-name: <distgroup-name>`)
-- Extracts target identifiers from `endpoint.Zone` field
+- Watches EndpointSlices labeled with `meridio-2.nordix.org/distribution-group: <distgroup-name>`
+- EndpointSlices must have an **OwnerReference** to the DistributionGroup (set by the DistributionGroup controller) to trigger reconciliation on updates
+- Extracts target identifiers from `endpoint.Zone` field (format: `maglev:<N>`)
 - Filters by `endpoint.Conditions.Ready == true`
-- Activates new targets: `instance.Activate(identifier, identifier)`
+- Activates new targets: `instance.Activate(identifier, fwmark)`
 - Deactivates removed targets: `instance.Deactivate(identifier)`
 
-### 3. Flow Configuration
+### 3. Policy Routing
 
-- Configure NFQLB flows from L34Routes
-- Map VIPs, protocols, ports, and priorities
+For each activated target:
+- Configures routing **before** activating the target to prevent traffic loss
+- Creates `ip rule`: fwmark → routing table
+- Creates `ip route`: default via target IP in routing table
+- Kernel determines the outgoing interface based on target IP subnet
+- Cleans up routes on target deactivation
+- Cleans stale ARP/NDP entries on route changes
+
+### 4. Flow Configuration
+
+- Configures NFQLB flows from L34Routes
+- Maps VIPs, protocols, ports, and priorities
 - Flows define traffic classification rules for load balancing
+- Flows are only configured when there are ready endpoints
 
-### 4. nftables Rules
+### 5. nftables Rules
 
-- Single shared nftables table (`meridio-lb`) for all DistributionGroups
-- VIPs extracted from Gateway.status.addresses
-- Queue traffic matching VIPs to nfqueue for NFQLB processing
-- Prevents packet re-injection with overlapping VIPs across DGs
+- Creates nftables table with VIP sets (IPv4 and IPv6)
+- Prerouting chain: queues VIP-destined traffic to nfqueue for NFQLB processing
+- Output chain: queues locally-originated ICMP to VIPs (for ping responses)
+- VIPs extracted from L34Route `destinationCIDRs`
 
-### 5. Readiness Signaling
+### 6. Readiness Signaling
 
-- Write readiness files: `/var/run/meridio/lb-ready-<distgroup>`
+- Writes readiness files: `/var/run/meridio/lb-ready-<distgroup>`
 - Created only when DistributionGroup has ready endpoints
-- Router container reads these to decide VIP advertisement
-- Cleanup on DistributionGroup deletion or endpoint unavailability
+- Removed when DistributionGroup is deleted or has no ready endpoints
+- Router container (Bird3) reads these to decide VIP advertisement via BGP
 
 ## References
 
