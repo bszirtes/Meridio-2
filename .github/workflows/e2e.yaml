@@ -9,12 +9,9 @@ on:
         type: string
 
   workflow_dispatch: # manual runs
-    inputs:
-      branch:
-        required: true
-        default: master
 
 env:
+  BRANCH: ${{ inputs.branch || github.ref_name }}
   KIND_VERSION: v0.27.0
 
 jobs:
@@ -29,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ env.BRANCH }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -55,7 +52,7 @@ jobs:
 
   release:
     needs: [kind]
-    if: startsWith(inputs.branch, 'release/')
+    if: github.event_name == 'workflow_call' && startsWith(inputs.branch, 'release/')
     uses: ./.github/workflows/release.yaml
     with:
       branch: ${{ inputs.branch }}
