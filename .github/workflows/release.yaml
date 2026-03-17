@@ -1,25 +1,24 @@
 ---
 name: release
+
 on:
-  workflow_run:
-    workflows: ["e2e"]
-    types:
-      - completed
-    branches:
-      - "release/**"
+  workflow_call:
+    inputs:
+      branch:
+        required: true
+        type: string
 
 jobs:
   get-tag:
     name: Get tag
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     outputs:
       tag: ${{ steps.get-tag-step.outputs.tag }}
     steps:
       - name: Get tag
         id: get-tag-step
         run: |
-          branch=${{ github.event.workflow_run.head_branch }}
+          branch=${{ inputs.branch }}
           echo "tag=${branch#release/}" >> $GITHUB_OUTPUT
 
   get-release-notes:
