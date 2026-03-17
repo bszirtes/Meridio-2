@@ -57,7 +57,7 @@ jobs:
 
   release:
     needs: [kind]
-    if: github.event_name == 'workflow_call' && startsWith(env.BRANCH, 'release/')
+    if: github.event_name == 'workflow_call' && startsWith(inputs.branch, 'release/')
     uses: ./.github/workflows/release.yaml
     with:
       branch: ${{ inputs.branch }}
