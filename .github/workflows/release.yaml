@@ -1,12 +1,12 @@
 ---
 name: release
+
 on:
-  workflow_run:
-    workflows: ["e2e"]
-    types:
-      - completed
-    branches:
-      - "release/**"
+  workflow_call:
+    inputs:
+      branch:
+        required: true
+        type: string
 
 jobs:
   get-tag:
