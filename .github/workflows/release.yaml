@@ -2,7 +2,12 @@
 name: release
 
 on:
-  workflow_call:
+  workflow_run:
+    workflows: ["ci"]
+    types:
+      - completed
+    branches:
+      - "release/**"
 
 jobs:
   get-tag:
@@ -14,7 +19,7 @@ jobs:
       - name: Get tag
         id: get-tag-step
         run: |
-          branch=${{ github.ref_name }}
+          branch=${{ github.event.workflow_run.head_branch }}
           echo "tag=${branch#release/}" >> $GITHUB_OUTPUT
 
   get-release-notes:
@@ -61,7 +66,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event.workflow_run.head_branch }}
       - name: Push tag
         run: |
           git tag ${{ needs.get-tag.outputs.tag }}
@@ -76,5 +81,5 @@ jobs:
         run: |
           gh release create ${{ needs.get-tag.outputs.tag }} \
             --title ${{ needs.get-tag.outputs.tag }} \
-            --target ${{ github.ref_name }} \
+            --target ${{ github.event.workflow_run.head_branch }} \
             --notes-file notes.txt

@@ -44,8 +44,3 @@ jobs:
         run: kubectl wait --for=condition=Ready --timeout=300s -n meridio-2 pod -l control-plane=controller-manager
       - name: List pods
         run: kubectl get pods -A
-
-  release:
-    needs: [kind]
-    if: github.event_name != 'workflow_dispatch' && startsWith(github.ref_name, 'release/')
-    uses: ./.github/workflows/release.yaml
