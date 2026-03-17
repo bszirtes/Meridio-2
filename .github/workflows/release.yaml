@@ -3,10 +3,6 @@ name: release
 
 on:
   workflow_call:
-    inputs:
-      branch:
-        required: true
-        type: string
 
 jobs:
   get-tag:
@@ -18,7 +14,7 @@ jobs:
       - name: Get tag
         id: get-tag-step
         run: |
-          branch=${{ inputs.branch }}
+          branch=${{ github.ref_name }}
           echo "tag=${branch#release/}" >> $GITHUB_OUTPUT
 
   get-release-notes:
@@ -65,7 +61,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ github.ref_name }}
       - name: Push tag
         run: |
           git tag ${{ needs.get-tag.outputs.tag }}
@@ -80,5 +76,5 @@ jobs:
         run: |
           gh release create ${{ needs.get-tag.outputs.tag }} \
             --title ${{ needs.get-tag.outputs.tag }} \
-            --target ${{ inputs.branch }} \
+            --target ${{ github.ref_name }} \
             --notes-file notes.txt

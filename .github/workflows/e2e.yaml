@@ -3,15 +3,10 @@ name: e2e
 
 on:
   workflow_call:
-    inputs:
-      branch:
-        required: true
-        type: string
 
   workflow_dispatch: # manual runs
 
 env:
-  BRANCH: ${{ inputs.branch || github.ref_name }}
   KIND_VERSION: v0.27.0
 
 jobs:
@@ -26,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.BRANCH }}
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -49,15 +44,8 @@ jobs:
         run: kubectl wait --for=condition=Ready --timeout=300s -n meridio-2 pod -l control-plane=controller-manager
       - name: List pods
         run: kubectl get pods -A
-      - name: Print env
-        run: |
-          echo "inputs.branch: ${{ inputs.branch }}"
-          echo "github.ref_name: ${{ github.ref_name }}"
-          echo "BRANCH: ${{ env.BRANCH }}"
 
   release:
     needs: [kind]
-    if: github.event_name == 'workflow_call' && startsWith(env.BRANCH, 'release/')
+    if: github.event_name != 'workflow_dispatch' && startsWith(github.ref_name, 'release/')
     uses: ./.github/workflows/release.yaml
-    with:
-      branch: ${{ env.BRANCH }}

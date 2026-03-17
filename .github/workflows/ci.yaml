@@ -85,7 +85,5 @@ jobs:
     needs: [unit-tests, build-images]
     if: github.event_name == 'push'
     uses: ./.github/workflows/e2e.yaml
-    with:
-      branch: ${{ github.ref_name }}
     permissions:
       contents: write
