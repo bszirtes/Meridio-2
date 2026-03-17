@@ -33,7 +33,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PREVIOUS_TAG=$(gh release list --repo ${{ github.repository }} --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
-          
+
           if [ -n "$PREVIOUS_TAG" ]; then
             NOTES=$(gh api \
               --method POST \
@@ -50,7 +50,7 @@ jobs:
               -f tag_name="${{ needs.get-tag.outputs.tag }}" \
               --jq '.body')
           fi
-          
+
           echo "$NOTES" > notes.txt
       - name: Upload release notes
         uses: actions/upload-artifact@v4
