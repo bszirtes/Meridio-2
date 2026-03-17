@@ -54,6 +54,7 @@ jobs:
           echo "inputs.branch: ${{ inputs.branch }}"
           echo "github.ref_name: ${{ github.ref_name }}"
           echo "BRANCH: ${{ env.BRANCH }}"
+          echo "${{ github.event_name }}"
 
   release:
     needs: [kind]
