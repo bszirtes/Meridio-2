@@ -54,7 +54,7 @@ jobs:
 
           echo "$NOTES" > notes.txt
       - name: Upload release notes
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-notes
           path: notes.txt
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           token: ${{ secrets.MERIDIO_2_TEST }}
@@ -74,7 +74,7 @@ jobs:
           git tag ${{ needs.get-tag.outputs.tag }}
           git push origin ${{ needs.get-tag.outputs.tag }}
       - name: Download release notes
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: release-notes
       - name: Create release
