@@ -21,16 +21,17 @@ import (
 	"fmt"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -55,7 +56,6 @@ type Reconciler struct {
 }
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups=meridio-2.nordix.org,resources=endpointnetworkconfigurations,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=meridio-2.nordix.org,resources=distributiongroups,verbs=get;list;watch
 // +kubebuilder:rbac:groups=meridio-2.nordix.org,resources=l34routes,verbs=get;list;watch
@@ -110,10 +110,14 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.mapL34RouteToPods)).
 		Watches(&meridio2v1alpha1.GatewayConfiguration{},
 			handler.EnqueueRequestsFromMapFunc(r.mapGatewayConfigToPods)).
-		// Deployment watch is a proxy for SLLBR Pod IP changes.
-		// TODO: add direct SLLBR Pod watch with label predicate for more precise triggering.
-		Watches(&appsv1.Deployment{},
-			handler.EnqueueRequestsFromMapFunc(r.mapSLLBRDeploymentToPods)).
+		// SLLBR Pod watch: triggers when SLLBR Pods get/lose secondary network IPs.
+		// Filtered by gateway-name label to avoid processing unrelated Pods.
+		Watches(&corev1.Pod{},
+			handler.EnqueueRequestsFromMapFunc(r.mapSLLBRPodToPods),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				_, ok := obj.GetLabels()[labelGatewayName]
+				return ok
+			}))).
 		Named("endpointnetworkconfiguration").
 		Complete(r)
 }

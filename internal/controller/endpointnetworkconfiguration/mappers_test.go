@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,7 +34,6 @@ import (
 func mapperScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
-	_ = appsv1.AddToScheme(s)
 	_ = meridio2v1alpha1.AddToScheme(s)
 	_ = gatewayv1.Install(s)
 	return s
@@ -204,36 +202,36 @@ func TestMapGatewayConfigToPods_NoMatchingGateway(t *testing.T) {
 	assert.Empty(t, reqs)
 }
 
-// --- mapSLLBRDeploymentToPods ---
+// --- mapSLLBRPodToPods ---
 
-func TestMapSLLBRDeploymentToPods(t *testing.T) {
-	pod := newPod("pod-1", corev1.PodRunning, map[string]string{"app": "target"})
+func TestMapSLLBRPodToPods(t *testing.T) {
+	appPod := newPod("pod-1", corev1.PodRunning, map[string]string{"app": "target"})
 	dg := newDG("dg-1", map[string]string{"app": "target"}, "gw-1")
-	deploy := &appsv1.Deployment{
+	sllbrPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "sllbr-deploy",
+			Name:      "sllbr-pod-1",
 			Namespace: "default",
 			Labels:    map[string]string{labelGatewayName: "gw-1"},
 		},
 	}
 
-	r := mapperReconciler(pod, dg, deploy)
-	reqs := r.mapSLLBRDeploymentToPods(context.Background(), deploy)
+	r := mapperReconciler(appPod, dg, sllbrPod)
+	reqs := r.mapSLLBRPodToPods(context.Background(), sllbrPod)
 
 	assert.Len(t, reqs, 1)
 	assert.Equal(t, "pod-1", reqs[0].Name)
 }
 
-func TestMapSLLBRDeploymentToPods_NoLabel(t *testing.T) {
-	deploy := &appsv1.Deployment{
+func TestMapSLLBRPodToPods_NoLabel(t *testing.T) {
+	sllbrPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "unrelated-deploy",
+			Name:      "unrelated-pod",
 			Namespace: "default",
 		},
 	}
 
-	r := mapperReconciler(deploy)
-	reqs := r.mapSLLBRDeploymentToPods(context.Background(), deploy)
+	r := mapperReconciler(sllbrPod)
+	reqs := r.mapSLLBRPodToPods(context.Background(), sllbrPod)
 
 	assert.Empty(t, reqs)
 }

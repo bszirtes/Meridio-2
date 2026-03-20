@@ -20,7 +20,6 @@ import (
 	"context"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -105,19 +104,20 @@ func (r *Reconciler) mapGatewayConfigToPods(ctx context.Context, obj client.Obje
 	return r.podsForGatewayKeys(ctx, gwKeys)
 }
 
-// mapSLLBRDeploymentToPods: SLLBR Deployment changed → extract Gateway name from label →
-// find DGs → find Pods.
-func (r *Reconciler) mapSLLBRDeploymentToPods(ctx context.Context, obj client.Object) []ctrl.Request {
-	deploy, ok := obj.(*appsv1.Deployment)
+// mapSLLBRPodToPods: SLLBR Pod changed (IP assigned/removed) → extract Gateway name from label →
+// find DGs → find application Pods.
+// Only called for Pods with gateway.networking.k8s.io/gateway-name label (filtered by predicate).
+func (r *Reconciler) mapSLLBRPodToPods(ctx context.Context, obj client.Object) []ctrl.Request {
+	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		return nil
 	}
-	gwName, exists := deploy.Labels[labelGatewayName]
+	gwName, exists := pod.Labels[labelGatewayName]
 	if !exists {
 		return nil
 	}
 	return r.podsForGatewayKeys(ctx, []client.ObjectKey{
-		{Namespace: deploy.Namespace, Name: gwName},
+		{Namespace: pod.Namespace, Name: gwName},
 	})
 }
 
