@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: vpn-gateway
     privileged: true
-    command: /init.sh 100
+    command: /init.sh
     networks:
       - kind
 

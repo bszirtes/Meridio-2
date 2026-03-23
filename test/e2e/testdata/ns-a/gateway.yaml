@@ -1,0 +1,49 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: e2e-ns-a
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: gw-a
+  namespace: e2e-ns-a
+spec:
+  gatewayClassName: meridio
+  infrastructure:
+    parametersRef:
+      group: meridio-2.nordix.org
+      kind: GatewayConfiguration
+      name: gwconfig-a
+  listeners:
+  - name: default
+    protocol: TCP
+    port: 80
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayConfiguration
+metadata:
+  name: gwconfig-a
+  namespace: e2e-ns-a
+spec:
+  networkAttachments:
+  - description: "VLAN 100 for BGP peering"
+    type: NAD
+    nad:
+      name: vlan-nad
+      namespace: e2e-ns-a
+      interface: vlan-100
+  - description: "Application network"
+    type: NAD
+    nad:
+      name: app-net
+      namespace: e2e-ns-a
+      interface: net1
+  networkSubnets:
+  - attachmentType: NAD
+    cidrs:
+    - "169.111.100.0/24"
+    - "fd00:111::0/120"
+  horizontalScaling:
+    replicas: 2

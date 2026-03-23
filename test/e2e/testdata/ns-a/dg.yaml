@@ -1,0 +1,14 @@
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: DistributionGroup
+metadata:
+  name: dg-a
+  namespace: e2e-ns-a
+spec:
+  selector:
+    matchLabels:
+      app: target-a
+  maglev:
+    maxEndpoints: 32
+  parentRefs:
+  - name: gw-a

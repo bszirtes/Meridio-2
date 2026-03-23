@@ -61,9 +61,18 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
 
 	setupCertManager()
+
+	By("applying cluster-scoped common resources")
+	cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/common/")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply common testdata (GatewayClass)")
 })
 
 var _ = AfterSuite(func() {
+	By("cleaning up cluster-scoped common resources")
+	cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/common/", "--ignore-not-found")
+	_, _ = utils.Run(cmd)
+
 	teardownCertManager()
 })
 

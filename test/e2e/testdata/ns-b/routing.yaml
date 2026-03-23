@@ -1,0 +1,66 @@
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayRouter
+metadata:
+  name: gw-b-router-v4
+  namespace: e2e-ns-b
+spec:
+  gatewayRef:
+    name: gw-b
+  interface: "vlan-200"
+  address: "169.254.200.150"
+  bgp:
+    localASN: 8104
+    remoteASN: 4248829953
+    localPort: 10179
+    remotePort: 10179
+    holdTime: 24s
+    bfd:
+      switch: true
+      minTx: 300ms
+      minRx: 300ms
+      multiplier: 3
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayRouter
+metadata:
+  name: gw-b-router-v6
+  namespace: e2e-ns-b
+spec:
+  gatewayRef:
+    name: gw-b
+  interface: "vlan-200"
+  address: "fd00:200::150"
+  bgp:
+    localASN: 8104
+    remoteASN: 4248829953
+    localPort: 10179
+    remotePort: 10179
+    holdTime: 24s
+    bfd:
+      switch: true
+      minTx: 300ms
+      minRx: 300ms
+      multiplier: 3
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: L34Route
+metadata:
+  name: route-b
+  namespace: e2e-ns-b
+spec:
+  parentRefs:
+  - name: gw-b
+  backendRefs:
+  - group: meridio-2.nordix.org
+    kind: DistributionGroup
+    name: dg-b
+  destinationCIDRs:
+  - "30.0.0.1/32"
+  - "2001:db8:1::1/128"
+  protocols:
+  - TCP
+  - UDP
+  destinationPorts:
+  - "5000"
+  priority: 100
