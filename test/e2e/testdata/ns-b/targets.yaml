@@ -18,6 +18,7 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: app-net
     spec:
+      serviceAccountName: meridio-2-sidecar
       containers:
       - name: ctraffic
         image: registry.nordix.org/cloud-native/meridio/ctraffic:latest

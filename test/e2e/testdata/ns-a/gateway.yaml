@@ -46,4 +46,4 @@ spec:
     - "169.111.100.0/24"
     - "fd00:111::0/120"
   horizontalScaling:
-    replicas: 2
+    replicas: 1

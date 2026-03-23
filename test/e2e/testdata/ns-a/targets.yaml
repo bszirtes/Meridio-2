@@ -18,6 +18,7 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: app-net
     spec:
+      serviceAccountName: meridio-2-sidecar
       containers:
       # ctraffic server: listens on TCP and UDP ports for traffic verification
       - name: ctraffic

@@ -38,7 +38,8 @@ RUN apk update && apk add iproute2 tcpdump nftables bird iputils net-tools libca
   && setcap 'cap_net_raw+ep' /bin/ping \
   && setcap 'cap_net_raw+ep' /usr/bin/tcpdump
 
-RUN mkdir -p /run/bird && mkdir -p /etc/bird
+RUN mkdir -p /run/bird && mkdir -p /etc/bird && mkdir -p /var/log/bird \
+  && chown $UID:$UID /run/bird /etc/bird /var/log/bird
 RUN addgroup --gid $UID $USER \
   && adduser $USER --home $HOME --uid $UID -G $USER --disabled-password \
   && chown -R :root "${HOME}" && chmod -R g+s=u "${HOME}"
