@@ -4,10 +4,11 @@ kind: Namespace
 metadata:
   name: e2e-ns-a
 ---
+# Gateway A1 on VLAN 100 with app-net-a1
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: gw-a
+  name: gw-a1
   namespace: e2e-ns-a
 spec:
   gatewayClassName: meridio
@@ -15,7 +16,7 @@ spec:
     parametersRef:
       group: meridio-2.nordix.org
       kind: GatewayConfiguration
-      name: gwconfig-a
+      name: gwconfig-a1
   listeners:
   - name: default
     protocol: TCP
@@ -24,26 +25,67 @@ spec:
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayConfiguration
 metadata:
-  name: gwconfig-a
+  name: gwconfig-a1
   namespace: e2e-ns-a
 spec:
   networkAttachments:
-  - description: "VLAN 100 for BGP peering"
-    type: NAD
+  - type: NAD
     nad:
-      name: vlan-nad
+      name: vlan-100
       namespace: e2e-ns-a
       interface: vlan-100
-  - description: "Application network"
-    type: NAD
+  - type: NAD
     nad:
-      name: app-net
+      name: app-net-a1
       namespace: e2e-ns-a
-      interface: net1
+      interface: net-a1
   networkSubnets:
   - attachmentType: NAD
     cidrs:
     - "169.111.100.0/24"
-    - "fd00:111::0/120"
+    - "fd00:111:100::0/120"
+  horizontalScaling:
+    replicas: 1
+---
+# Gateway A2 on VLAN 200 with app-net-a2
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: gw-a2
+  namespace: e2e-ns-a
+spec:
+  gatewayClassName: meridio
+  infrastructure:
+    parametersRef:
+      group: meridio-2.nordix.org
+      kind: GatewayConfiguration
+      name: gwconfig-a2
+  listeners:
+  - name: default
+    protocol: TCP
+    port: 80
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayConfiguration
+metadata:
+  name: gwconfig-a2
+  namespace: e2e-ns-a
+spec:
+  networkAttachments:
+  - type: NAD
+    nad:
+      name: vlan-200
+      namespace: e2e-ns-a
+      interface: vlan-200
+  - type: NAD
+    nad:
+      name: app-net-a2
+      namespace: e2e-ns-a
+      interface: net-a2
+  networkSubnets:
+  - attachmentType: NAD
+    cidrs:
+    - "169.111.200.0/24"
+    - "fd00:111:200::0/120"
   horizontalScaling:
     replicas: 1

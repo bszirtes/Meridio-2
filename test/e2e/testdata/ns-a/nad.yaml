@@ -1,10 +1,9 @@
 ---
-# VLAN NAD for BGP peering (router ↔ external gateway)
-# VLAN 100: 169.254.100.x/24 + fd00:100::x/64
+# VLAN 100 NAD for gw-a1 BGP peering
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
-  name: vlan-nad
+  name: vlan-100
   namespace: e2e-ns-a
 spec:
   config: |
@@ -22,18 +21,39 @@ spec:
       }
     }
 ---
-# Macvlan NAD for application network (SLLBR ↔ app Pods)
-# Dual-stack via whereabouts IPAM
+# VLAN 200 NAD for gw-a2 BGP peering
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
-  name: app-net
+  name: vlan-200
+  namespace: e2e-ns-a
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "type": "vlan",
+      "master": "eth0",
+      "vlanId": 200,
+      "ipam": {
+        "type": "static",
+        "addresses": [
+          { "address": "169.254.200.1/24" },
+          { "address": "fd00:200::1/64" }
+        ]
+      }
+    }
+---
+# App network for gw-a1 (SLLBR ↔ app Pods)
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: app-net-a1
   namespace: e2e-ns-a
 spec:
   config: |
     {
       "cniVersion": "1.0.0",
-      "name": "app-net-a",
+      "name": "app-net-a1",
       "plugins": [
         {
           "type": "macvlan",
@@ -43,7 +63,34 @@ spec:
             "type": "whereabouts",
             "ipRanges": [
               { "range": "169.111.100.0/24" },
-              { "range": "fd00:111::0/120" }
+              { "range": "fd00:111:100::0/120" }
+            ]
+          }
+        }
+      ]
+    }
+---
+# App network for gw-a2 (separate from gw-a1)
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: app-net-a2
+  namespace: e2e-ns-a
+spec:
+  config: |
+    {
+      "cniVersion": "1.0.0",
+      "name": "app-net-a2",
+      "plugins": [
+        {
+          "type": "macvlan",
+          "master": "eth0",
+          "mode": "bridge",
+          "ipam": {
+            "type": "whereabouts",
+            "ipRanges": [
+              { "range": "169.111.200.0/24" },
+              { "range": "fd00:111:200::0/120" }
             ]
           }
         }

@@ -51,27 +51,28 @@ func Ping(vip string) error {
 	return nil
 }
 
+// ctrafficResult represents the relevant fields from ctraffic JSON output.
+type ctrafficResult struct {
+	FailedConnects int `json:"FailedConnects"`
+	ConnStats      []struct {
+		Host string `json:"Host"`
+	} `json:"ConnStats"`
+}
+
 // parseCtrafficOutput parses ctraffic JSON stats output.
 // Returns map[hostname]connectionCount and lostConnections.
 func parseCtrafficOutput(output []byte) (map[string]int, int, error) {
-	var data map[string]interface{}
-	if err := json.Unmarshal(output, &data); err != nil {
+	var result ctrafficResult
+	if err := json.Unmarshal(output, &result); err != nil {
 		return nil, 0, fmt.Errorf("failed to parse ctraffic output: %w\nraw: %s", err, string(output))
 	}
 
-	lastingConn := make(map[string]int)
-	if hosts, ok := data["hosts"].(map[string]interface{}); ok {
-		for host, count := range hosts {
-			if c, ok := count.(float64); ok {
-				lastingConn[host] = int(c)
-			}
+	hostCounts := make(map[string]int)
+	for _, cs := range result.ConnStats {
+		if cs.Host != "" {
+			hostCounts[cs.Host]++
 		}
 	}
 
-	lostConn := 0
-	if lost, ok := data["failed_connects"].(float64); ok {
-		lostConn = int(lost)
-	}
-
-	return lastingConn, lostConn, nil
+	return hostCounts, result.FailedConnects, nil
 }

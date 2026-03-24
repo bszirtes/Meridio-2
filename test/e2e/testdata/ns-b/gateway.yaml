@@ -4,10 +4,11 @@ kind: Namespace
 metadata:
   name: e2e-ns-b
 ---
+# Gateway B1 on VLAN 300 with shared app-net-b
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: gw-b
+  name: gw-b1
   namespace: e2e-ns-b
 spec:
   gatewayClassName: meridio
@@ -15,7 +16,7 @@ spec:
     parametersRef:
       group: meridio-2.nordix.org
       kind: GatewayConfiguration
-      name: gwconfig-b
+      name: gwconfig-b1
   listeners:
   - name: default
     protocol: TCP
@@ -24,26 +25,67 @@ spec:
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayConfiguration
 metadata:
-  name: gwconfig-b
+  name: gwconfig-b1
   namespace: e2e-ns-b
 spec:
   networkAttachments:
-  - description: "VLAN 200 for BGP peering"
-    type: NAD
+  - type: NAD
     nad:
-      name: vlan-nad
+      name: vlan-300
       namespace: e2e-ns-b
-      interface: vlan-200
-  - description: "Application network"
-    type: NAD
+      interface: vlan-300
+  - type: NAD
     nad:
-      name: app-net
+      name: app-net-b
       namespace: e2e-ns-b
-      interface: net1
+      interface: net-b
   networkSubnets:
   - attachmentType: NAD
     cidrs:
-    - "169.111.200.0/24"
-    - "fd00:211::0/120"
+    - "169.111.100.0/24"
+    - "fd00:111:100::0/120"
+  horizontalScaling:
+    replicas: 1
+---
+# Gateway B2 on VLAN 400 with shared app-net-b
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: gw-b2
+  namespace: e2e-ns-b
+spec:
+  gatewayClassName: meridio
+  infrastructure:
+    parametersRef:
+      group: meridio-2.nordix.org
+      kind: GatewayConfiguration
+      name: gwconfig-b2
+  listeners:
+  - name: default
+    protocol: TCP
+    port: 80
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayConfiguration
+metadata:
+  name: gwconfig-b2
+  namespace: e2e-ns-b
+spec:
+  networkAttachments:
+  - type: NAD
+    nad:
+      name: vlan-400
+      namespace: e2e-ns-b
+      interface: vlan-400
+  - type: NAD
+    nad:
+      name: app-net-b
+      namespace: e2e-ns-b
+      interface: net-b
+  networkSubnets:
+  - attachmentType: NAD
+    cidrs:
+    - "169.111.100.0/24"
+    - "fd00:111:100::0/120"
   horizontalScaling:
     replicas: 1

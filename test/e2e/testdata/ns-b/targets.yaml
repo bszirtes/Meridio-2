@@ -16,7 +16,7 @@ spec:
       labels:
         app: target-b
       annotations:
-        k8s.v1.cni.cncf.io/networks: app-net
+        k8s.v1.cni.cncf.io/networks: app-net-b
     spec:
       serviceAccountName: meridio-2-sidecar
       containers:
