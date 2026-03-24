@@ -70,7 +70,7 @@ func (r *Reconciler) resolveGatewayConnections(ctx context.Context, pod *corev1.
 	// Build GatewayConnection per Gateway
 	var connections []meridio2v1alpha1.GatewayConnection
 	for _, gw := range gatewayMap {
-		conn, err := r.buildGatewayConnection(ctx, gw)
+		conn, err := r.buildGatewayConnection(ctx, pod, gw)
 		if err != nil {
 			logf.FromContext(ctx).Error(err, "skipping gateway", "gateway", gw.Name)
 			continue
@@ -84,8 +84,9 @@ func (r *Reconciler) resolveGatewayConnections(ctx context.Context, pod *corev1.
 }
 
 // buildGatewayConnection builds a GatewayConnection for a single Gateway.
-func (r *Reconciler) buildGatewayConnection(ctx context.Context, gw *gatewayv1.Gateway) (*meridio2v1alpha1.GatewayConnection, error) {
-	subnetToType, subnetToHint, err := r.getNetworkContexts(ctx, gw)
+// The pod's Multus network-status annotation is used to resolve interface hints.
+func (r *Reconciler) buildGatewayConnection(ctx context.Context, pod *corev1.Pod, gw *gatewayv1.Gateway) (*meridio2v1alpha1.GatewayConnection, error) {
+	subnetToType, err := r.getNetworkContexts(ctx, gw)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +127,7 @@ func (r *Reconciler) buildGatewayConnection(ctx context.Context, gw *gatewayv1.G
 			IPFamily: ipFamily,
 			Network: meridio2v1alpha1.NetworkIdentity{
 				Subnet:        subnet,
-				InterfaceHint: subnetToHint[subnet],
+				InterfaceHint: scrapeInterfaceForSubnet(pod, subnet),
 			},
 			VIPs:     vips,
 			NextHops: nextHops,
@@ -250,32 +251,22 @@ func (r *Reconciler) getSLLBRNextHops(ctx context.Context, gw *gatewayv1.Gateway
 }
 
 // getNetworkContexts extracts network context from GatewayConfiguration.
-// Returns subnetToType (CIDR→"NAD"/"DRA") and subnetToHint (CIDR→interface name).
-func (r *Reconciler) getNetworkContexts(ctx context.Context, gw *gatewayv1.Gateway) (subnetToType, subnetToHint map[string]string, err error) {
-	subnetToType = make(map[string]string)
-	subnetToHint = make(map[string]string)
+// Returns subnetToType (CIDR→"NAD"/"DRA").
+func (r *Reconciler) getNetworkContexts(ctx context.Context, gw *gatewayv1.Gateway) (map[string]string, error) {
+	subnetToType := make(map[string]string)
 
 	if gw.Spec.Infrastructure == nil || gw.Spec.Infrastructure.ParametersRef == nil {
-		return subnetToType, subnetToHint, nil
+		return subnetToType, nil
 	}
 
 	ref := gw.Spec.Infrastructure.ParametersRef
 	if string(ref.Group) != meridio2v1alpha1.GroupVersion.Group || string(ref.Kind) != kindGatewayConfiguration {
-		return subnetToType, subnetToHint, nil
+		return subnetToType, nil
 	}
 
 	var gwConfig meridio2v1alpha1.GatewayConfiguration
 	if err := r.Get(ctx, client.ObjectKey{Namespace: gw.Namespace, Name: ref.Name}, &gwConfig); err != nil {
-		return subnetToType, subnetToHint, client.IgnoreNotFound(err)
-	}
-
-	// Build interface hint from NAD attachments
-	var nadInterface string
-	for _, att := range gwConfig.Spec.NetworkAttachments {
-		if att.Type == attachmentTypeNAD && att.NAD != nil && att.NAD.Interface != "" {
-			nadInterface = att.NAD.Interface
-			break
-		}
+		return subnetToType, client.IgnoreNotFound(err)
 	}
 
 	for _, subnet := range gwConfig.Spec.NetworkSubnets {
@@ -285,13 +276,10 @@ func (r *Reconciler) getNetworkContexts(ctx context.Context, gw *gatewayv1.Gatew
 				continue
 			}
 			subnetToType[normalized] = subnet.AttachmentType
-			if subnet.AttachmentType == attachmentTypeNAD && nadInterface != "" {
-				subnetToHint[normalized] = nadInterface
-			}
 		}
 	}
 
-	return subnetToType, subnetToHint, nil
+	return subnetToType, nil
 }
 
 // extractVIPs splits Gateway.status.addresses into IPv4 and IPv6 plain IP strings.
@@ -447,6 +435,35 @@ func defaultIPScraper(pod *corev1.Pod, cidr, attachmentType string) string {
 			ip := net.ParseIP(ipStr)
 			if ip != nil && targetNet.Contains(ip) {
 				return ipStr
+			}
+		}
+	}
+	return ""
+}
+
+// scrapeInterfaceForSubnet finds the interface name on the pod that has an IP
+// within the given CIDR subnet, using the Multus network-status annotation.
+func scrapeInterfaceForSubnet(pod *corev1.Pod, cidr string) string {
+	annotation, ok := pod.Annotations[netdefv1.NetworkStatusAnnot]
+	if !ok {
+		return ""
+	}
+	var networkStatus []netdefv1.NetworkStatus
+	if err := json.Unmarshal([]byte(annotation), &networkStatus); err != nil {
+		return ""
+	}
+	_, targetNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return ""
+	}
+	for _, netif := range networkStatus {
+		if netif.Default {
+			continue
+		}
+		for _, ipStr := range netif.IPs {
+			ip := net.ParseIP(ipStr)
+			if ip != nil && targetNet.Contains(ip) {
+				return netif.Interface
 			}
 		}
 	}

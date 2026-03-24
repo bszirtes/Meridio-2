@@ -259,12 +259,10 @@ func TestGetNetworkContexts(t *testing.T) {
 	gc := newGatewayConfig("sllb-a-config", testNamespace, []string{testSubnetV4, "fd00:100::/64"}, "net1")
 	r, _ := setupReconciler(gw, gc)
 
-	subnetToType, subnetToHint, err := r.getNetworkContexts(context.Background(), gw)
+	subnetToType, err := r.getNetworkContexts(context.Background(), gw)
 	require.NoError(t, err)
 	assert.Equal(t, "NAD", subnetToType[testSubnetV4])
 	assert.Equal(t, "NAD", subnetToType["fd00:100::/64"])
-	assert.Equal(t, "net1", subnetToHint[testSubnetV4])
-	assert.Equal(t, "net1", subnetToHint["fd00:100::/64"])
 }
 
 func TestGetNetworkContexts_NoParametersRef(t *testing.T) {
@@ -274,7 +272,7 @@ func TestGetNetworkContexts_NoParametersRef(t *testing.T) {
 	}
 	r, _ := setupReconciler(gw)
 
-	subnetToType, _, err := r.getNetworkContexts(context.Background(), gw)
+	subnetToType, err := r.getNetworkContexts(context.Background(), gw)
 	require.NoError(t, err)
 	assert.Empty(t, subnetToType)
 }
@@ -319,8 +317,16 @@ func TestBuildGatewayConnection_NamingConvention(t *testing.T) {
 		},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
+	// Target pod with Multus network-status annotation
+	targetPod := newPod("app-1", corev1.PodRunning, map[string]string{"app": "web"})
+	targetPod.Annotations = map[string]string{
+		"k8s.v1.cni.cncf.io/network-status": `[
+			{"name":"default","interface":"eth0","ips":["10.244.0.5"],"default":true},
+			{"name":"net1","interface":"net1","ips":["169.111.100.10","fd00:100::a"]}
+		]`,
+	}
 
-	r, _ := setupReconciler(gw, gc, sllbrPod)
+	r, _ := setupReconciler(gw, gc, sllbrPod, targetPod)
 	r.IPScraper = func(pod *corev1.Pod, cidr, _ string) string {
 		switch cidr {
 		case testSubnetV4:
@@ -331,7 +337,7 @@ func TestBuildGatewayConnection_NamingConvention(t *testing.T) {
 		return ""
 	}
 
-	conn, err := r.buildGatewayConnection(context.Background(), gw)
+	conn, err := r.buildGatewayConnection(context.Background(), targetPod, gw)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -354,6 +360,7 @@ func TestBuildGatewayConnection_NamingConvention(t *testing.T) {
 	v6 := domainMap["IPv6"]
 	assert.Equal(t, "sllb-a-IPv6", v6.Name)
 	assert.Equal(t, "fd00:100::/64", v6.Network.Subnet)
+	assert.Equal(t, "net1", v6.Network.InterfaceHint)
 	assert.Equal(t, []string{"2001:db8::1"}, v6.VIPs)
 	assert.Equal(t, []string{"fd00:100::3"}, v6.NextHops)
 }
@@ -362,6 +369,12 @@ func TestBuildGatewayConnection_NamingConvention(t *testing.T) {
 
 func TestResolveGatewayConnections_FullChain(t *testing.T) {
 	pod := newPod("app-1", corev1.PodRunning, map[string]string{"app": "web"})
+	pod.Annotations = map[string]string{
+		"k8s.v1.cni.cncf.io/network-status": `[
+			{"name":"default","interface":"eth0","ips":["10.244.0.5"],"default":true},
+			{"name":"nad-1","interface":"net1","ips":["169.111.100.10"]}
+		]`,
+	}
 	gw := acceptedGateway("sllb-a", testControllerName, "20.0.0.1")
 	gc := newGatewayConfig("sllb-a-config", testNamespace, []string{testSubnetV4}, "net1")
 	dg := newDG("dg-1", map[string]string{"app": "web"}, "sllb-a")
@@ -390,6 +403,7 @@ func TestResolveGatewayConnections_FullChain(t *testing.T) {
 	require.Len(t, connections[0].Domains, 1)
 	assert.Equal(t, "sllb-a-IPv4", connections[0].Domains[0].Name)
 	assert.Equal(t, testIPFamilyV4, connections[0].Domains[0].IPFamily)
+	assert.Equal(t, "net1", connections[0].Domains[0].Network.InterfaceHint)
 	assert.Equal(t, []string{"20.0.0.1"}, connections[0].Domains[0].VIPs)
 	assert.Equal(t, []string{testNextHopV4}, connections[0].Domains[0].NextHops)
 }
@@ -447,6 +461,12 @@ func TestBackendRefMatchesDG(t *testing.T) {
 func TestSidecarContract_DualStack(t *testing.T) {
 	// Build a dual-stack scenario: Gateway with IPv4+IPv6 VIPs, two subnets
 	pod := newPod("app-1", corev1.PodRunning, map[string]string{"app": "web"})
+	pod.Annotations = map[string]string{
+		"k8s.v1.cni.cncf.io/network-status": `[
+			{"name":"default","interface":"eth0","ips":["10.244.0.5"],"default":true},
+			{"name":"nad-1","interface":"net1","ips":["169.111.100.10","fd00::100:a"]}
+		]`,
+	}
 	gw := acceptedGateway("sllb-a", testControllerName, "20.0.0.1", "2001:db8::1")
 
 	gc := &meridio2v1alpha1.GatewayConfiguration{
