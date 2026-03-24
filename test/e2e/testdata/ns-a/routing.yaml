@@ -63,7 +63,7 @@ spec:
   - TCP
   - UDP
   destinationPorts:
-  - "5000"
+  - "5000-5001"
   priority: 100
 ---
 # gw-a2 routers (VLAN 200, ASN 8104)
@@ -130,5 +130,5 @@ spec:
   - TCP
   - UDP
   destinationPorts:
-  - "5000"
+  - "5000-5001"
   priority: 100

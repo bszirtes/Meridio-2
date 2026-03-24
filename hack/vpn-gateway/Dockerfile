@@ -1,6 +1,6 @@
 FROM golang:1.23 AS builder
 
-RUN git clone --depth 1 https://github.com/Nordix/ctraffic.git /tmp/ctraffic && \
+RUN git clone --depth 1 -b v1.7.0 https://github.com/Nordix/ctraffic.git /tmp/ctraffic && \
     cd /tmp/ctraffic && \
     CGO_ENABLED=0 go build -o ctraffic ./cmd/ctraffic
 

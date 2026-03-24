@@ -26,7 +26,7 @@ spec:
         args:
         - |
           /home/tapa-user/ctraffic -server -address [::]:5000 &
-          /home/tapa-user/ctraffic -server -udp -address [::]:5000 &
+          /home/tapa-user/ctraffic -server -udp -address [::]:5001 &
           wait
         securityContext:
           runAsNonRoot: true

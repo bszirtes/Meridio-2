@@ -261,7 +261,7 @@ Expected: 0% packet loss on all 8 VIPs.
 ## 8. Traffic Tests — TCP Load Balancing
 
 ```bash
-# IPv4 TCP (100 connections per VIP, expect 2 target hosts each)
+# IPv4 TCP on port 5000 (100 connections per VIP, expect 2 target hosts each)
 for spec in "gw-a1,20.0.0.1" "gw-a2,20.0.0.2" "gw-b1,30.0.0.1" "gw-b2,30.0.0.2"; do
   IFS=, read gw vip <<< "$spec"
   out=$(docker exec vpn-gateway /opt/ctraffic -address $vip:5000 -nconn 100 -timeout 10s -stats all)
@@ -270,7 +270,7 @@ for spec in "gw-a1,20.0.0.1" "gw-a2,20.0.0.2" "gw-b1,30.0.0.1" "gw-b2,30.0.0.2";
   echo "$gw TCP IPv4: $nhosts hosts, $lost lost"
 done
 
-# IPv6 TCP
+# IPv6 TCP on port 5000
 for spec in "gw-a1,[2001:db8::1]" "gw-a2,[2001:db8::2]" "gw-b1,[2001:db8:1::1]" "gw-b2,[2001:db8:1::2]"; do
   IFS=, read gw vip <<< "$spec"
   out=$(docker exec vpn-gateway /opt/ctraffic -address "$vip:5000" -nconn 100 -timeout 10s -stats all)
@@ -309,13 +309,6 @@ Results: 16 passed, 0 failed
 ```
 
 ## Known Issues
-
-### UDP Load Balancing
-
-UDP traffic tests are currently unreliable. NFQLB forwards the initial UDP packet
-to the target correctly, but return UDP packets from some targets are dropped.
-TCP works because conntrack tracks the connection state. UDP tests are marked
-as Pending in the automated test suite.
 
 ### Dual-Stack LB Controller Race
 

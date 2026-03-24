@@ -25,8 +25,9 @@ const (
 	vipB2v4 = "30.0.0.2"
 	vipB2v6 = "2001:db8:1::2"
 
-	port  = 5000
-	nconn = 100
+	port    = 5000
+	udpPort = 5001
+	nconn   = 100
 )
 
 var _ = Describe("Traffic", Ordered, func() {
@@ -78,11 +79,8 @@ var _ = Describe("Traffic", Ordered, func() {
 		}
 	})
 
-	// UDP load balancing is currently unreliable due to NFQLB fwmark handling
-	// with UDP packets. Some connections get responses while others don't,
-	// depending on the Maglev hash bucket assignment. TCP works correctly.
-	// TODO: Investigate NFQLB UDP forwarding path.
-	PContext("UDP load balancing per gateway", func() {
+	// UDP load balancing uses port 5001 (separate from TCP on 5000).
+	Context("UDP load balancing per gateway", func() {
 		for _, tc := range []struct {
 			name    string
 			vip     string
@@ -95,7 +93,7 @@ var _ = Describe("Traffic", Ordered, func() {
 		} {
 			tc := tc
 			It("distributes "+tc.name+" UDP traffic across targets", func() {
-				lastingConn, lostConn, err := e2eutils.SendTraffic(tc.vip, port, "udp", nconn)
+				lastingConn, lostConn, err := e2eutils.SendTraffic(tc.vip, udpPort, "udp", nconn)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(lostConn).To(BeZero(), "no connections should be lost")
 				Expect(len(lastingConn)).To(Equal(tc.targets),
