@@ -15,13 +15,13 @@ echo "=== Building and deploying Meridio-2 ==="
 kubectl config use-context "kind-${CLUSTER_NAME}"
 
 echo "📦 Building images..."
-for img in controller-manager stateless-load-balancer router sidecar; do
+for img in controller-manager stateless-load-balancer router network-sidecar; do
     echo "  Building ${img}..."
     make "${img}" BUILD_STEPS="build tag" VERSION="${VERSION}" REGISTRY="${REGISTRY}" 2>&1 | tail -1
 done
 
 echo "📤 Loading images into Kind..."
-for img in controller-manager stateless-load-balancer router sidecar; do
+for img in controller-manager stateless-load-balancer router network-sidecar; do
     kind load docker-image "${REGISTRY}/${img}:${VERSION}" --name "${CLUSTER_NAME}"
 done
 

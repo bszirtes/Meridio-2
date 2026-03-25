@@ -57,7 +57,7 @@ done
 export REG=registry.nordix.org/cloud-native/meridio-2
 export TAG=e2e-$(git rev-parse --short HEAD)
 
-for img in controller-manager stateless-load-balancer router sidecar; do
+for img in controller-manager stateless-load-balancer router network-sidecar; do
   make $img BUILD_STEPS="build tag" REGISTRY=$REG VERSION=$TAG
   kind load docker-image $REG/$img:$TAG --name meridio-e2e
 done
@@ -104,11 +104,11 @@ kubectl apply -f test/e2e/testdata/ns-b/
 
 ### Step 7: Fix Sidecar Image on Targets
 
-Target YAML uses generic `sidecar:latest`. Patch with the real image:
+Target YAML uses generic `network-sidecar:latest`. Patch with the real image:
 
 ```bash
-kubectl set image deployment/target-a -n e2e-ns-a sidecar=$REG/sidecar:$TAG
-kubectl set image deployment/target-b -n e2e-ns-b sidecar=$REG/sidecar:$TAG
+kubectl set image deployment/target-a -n e2e-ns-a network-sidecar=$REG/network-sidecar:$TAG
+kubectl set image deployment/target-b -n e2e-ns-b network-sidecar=$REG/network-sidecar:$TAG
 ```
 
 ### Step 8: Wait for System Ready
@@ -210,18 +210,18 @@ TARGET_A=$(kubectl get pods -n e2e-ns-a -l app=target-a -o jsonpath='{.items[0].
 TARGET_B=$(kubectl get pods -n e2e-ns-b -l app=target-b -o jsonpath='{.items[0].metadata.name}')
 
 # ns-a: VIPs on separate interfaces (net1, net2)
-echo "=== ns-a VIPs ===" && kubectl exec $TARGET_A -n e2e-ns-a -c sidecar -- ip addr show | grep -E "/32|/128" | grep -v "::1"
-echo "=== ns-a rules ===" && kubectl exec $TARGET_A -n e2e-ns-a -c sidecar -- ip rule show | grep 5000
-kubectl exec $TARGET_A -n e2e-ns-a -c sidecar -- ip -6 rule show | grep 5000
-echo "=== ns-a tables ===" && kubectl exec $TARGET_A -n e2e-ns-a -c sidecar -- ip route show table 50000
-kubectl exec $TARGET_A -n e2e-ns-a -c sidecar -- ip route show table 50001
+echo "=== ns-a VIPs ===" && kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip addr show | grep -E "/32|/128" | grep -v "::1"
+echo "=== ns-a rules ===" && kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip rule show | grep 5000
+kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip -6 rule show | grep 5000
+echo "=== ns-a tables ===" && kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip route show table 50000
+kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip route show table 50001
 
 # ns-b: VIPs on same interface (net1), different next-hops
-echo "=== ns-b VIPs ===" && kubectl exec $TARGET_B -n e2e-ns-b -c sidecar -- ip addr show | grep -E "/32|/128" | grep -v "::1"
-echo "=== ns-b rules ===" && kubectl exec $TARGET_B -n e2e-ns-b -c sidecar -- ip rule show | grep 5000
-kubectl exec $TARGET_B -n e2e-ns-b -c sidecar -- ip -6 rule show | grep 5000
-echo "=== ns-b tables ===" && kubectl exec $TARGET_B -n e2e-ns-b -c sidecar -- ip route show table 50000
-kubectl exec $TARGET_B -n e2e-ns-b -c sidecar -- ip route show table 50001
+echo "=== ns-b VIPs ===" && kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip addr show | grep -E "/32|/128" | grep -v "::1"
+echo "=== ns-b rules ===" && kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip rule show | grep 5000
+kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip -6 rule show | grep 5000
+echo "=== ns-b tables ===" && kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip route show table 50000
+kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip route show table 50001
 ```
 
 Expected for ns-a (separate app-nets):

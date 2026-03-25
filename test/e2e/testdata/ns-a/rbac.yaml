@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: meridio-2-sidecar
+  name: meridio-2-network-sidecar
   namespace: e2e-ns-a
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: meridio-2-sidecar
+  name: meridio-2-network-sidecar
   namespace: e2e-ns-a
 rules:
 - apiGroups: ["meridio-2.nordix.org"]
@@ -21,13 +21,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: meridio-2-sidecar
+  name: meridio-2-network-sidecar
   namespace: e2e-ns-a
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: meridio-2-sidecar
+  name: meridio-2-network-sidecar
 subjects:
 - kind: ServiceAccount
-  name: meridio-2-sidecar
+  name: meridio-2-network-sidecar
   namespace: e2e-ns-a

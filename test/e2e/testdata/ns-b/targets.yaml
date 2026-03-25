@@ -18,7 +18,7 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: app-net-b
     spec:
-      serviceAccountName: meridio-2-sidecar
+      serviceAccountName: meridio-2-network-sidecar
       containers:
       - name: ctraffic
         image: registry.nordix.org/cloud-native/meridio/ctraffic:latest
@@ -32,8 +32,8 @@ spec:
           runAsNonRoot: true
           capabilities:
             drop: ["ALL"]
-      - name: sidecar
-        image: sidecar:latest
+      - name: network-sidecar
+        image: network-sidecar:latest
         imagePullPolicy: IfNotPresent
         args:
         - --pod-name=$(POD_NAME)
