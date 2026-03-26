@@ -15,7 +15,6 @@ spec:
     spec:
       serviceAccountName: stateless-load-balancer
       securityContext:
-        runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       affinity:
@@ -28,11 +27,25 @@ spec:
                 values:
                 - stateless-load-balancer
             topologyKey: kubernetes.io/hostname
+      initContainers:
+      - name: sysctl
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          sysctl -w net.ipv4.conf.all.forwarding=1
+          sysctl -w net.ipv6.conf.all.forwarding=1
+          sysctl -w net.ipv4.fib_multipath_hash_policy=1
+          sysctl -w net.ipv6.fib_multipath_hash_policy=1
+          sysctl -w net.ipv4.conf.all.rp_filter=0
+          sysctl -w net.ipv4.conf.default.rp_filter=0
+          sysctl -w net.ipv6.conf.all.accept_dad=0
+        securityContext:
+          privileged: true
       containers:
       - name: loadbalancer
-        image: registry.nordix.org/cloud-native/meridio-2/stateless-load-balancer:latest
-        args:
-          - run
+        image: stateless-load-balancer:latest
         env:
         - name: MERIDIO_GATEWAY_NAME
           value:  # to be filled by operator
@@ -62,9 +75,10 @@ spec:
             cpu: 500m
             memory: 512Mi
       - name: router
-        image: registry.nordix.org/cloud-native/meridio-2/router:latest
+        image: router:latest
+        command: ["./router"]
         args:
-          - run
+        - run
         env:
         - name: MERIDIO_GATEWAY_NAME
           value:  # to be filled by operator
@@ -89,7 +103,7 @@ spec:
             - NET_RAW          # BIRD SO_BINDTODEVICE socket option
         volumeMounts:
         - name: bird-run
-          mountPath: /var/run/bird
+          mountPath: /run/bird
         - name: bird-etc
           mountPath: /etc/bird
         - name: bird-log

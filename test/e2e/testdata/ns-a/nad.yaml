@@ -13,10 +13,10 @@ spec:
       "master": "eth0",
       "vlanId": 100,
       "ipam": {
-        "type": "static",
-        "addresses": [
-          { "address": "169.254.100.1/24" },
-          { "address": "fd00:100::1/64" }
+        "type": "whereabouts",
+        "ipRanges": [
+          { "range": "169.254.100.0/24", "exclude": ["169.254.100.150/32"] },
+          { "range": "fd00:100::/64", "exclude": ["fd00:100::150/128"] }
         ]
       }
     }
@@ -35,10 +35,10 @@ spec:
       "master": "eth0",
       "vlanId": 200,
       "ipam": {
-        "type": "static",
-        "addresses": [
-          { "address": "169.254.200.1/24" },
-          { "address": "fd00:200::1/64" }
+        "type": "whereabouts",
+        "ipRanges": [
+          { "range": "169.254.200.0/24", "exclude": ["169.254.200.150/32"] },
+          { "range": "fd00:200::/64", "exclude": ["fd00:200::150/128"] }
         ]
       }
     }
