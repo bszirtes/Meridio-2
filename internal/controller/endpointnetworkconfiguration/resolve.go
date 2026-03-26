@@ -122,12 +122,17 @@ func (r *Reconciler) buildGatewayConnection(ctx context.Context, pod *corev1.Pod
 			continue
 		}
 
+		ifName := scrapeInterfaceForSubnet(pod, subnet)
+		if ifName == "" {
+			continue // Pod has no interface in this subnet — skip domain
+		}
+
 		domains = append(domains, meridio2v1alpha1.NetworkDomain{
 			Name:     fmt.Sprintf("%s-%s", gw.Name, ipFamily),
 			IPFamily: ipFamily,
 			Network: meridio2v1alpha1.NetworkIdentity{
 				Subnet:        subnet,
-				InterfaceHint: scrapeInterfaceForSubnet(pod, subnet),
+				InterfaceHint: ifName,
 			},
 			VIPs:     vips,
 			NextHops: nextHops,

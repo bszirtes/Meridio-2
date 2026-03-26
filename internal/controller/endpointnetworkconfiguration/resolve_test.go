@@ -87,12 +87,12 @@ func newDG(name string, selector map[string]string, parentGateway string) *merid
 	return dg
 }
 
-func newGatewayConfig(name, ns string, cidrs []string, nadInterface string) *meridio2v1alpha1.GatewayConfiguration {
+func newGatewayConfig(cidrs []string) *meridio2v1alpha1.GatewayConfiguration {
 	gc := &meridio2v1alpha1.GatewayConfiguration{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: "sllb-a-config", Namespace: testNamespace},
 		Spec: meridio2v1alpha1.GatewayConfigurationSpec{
 			NetworkAttachments: []meridio2v1alpha1.NetworkAttachment{
-				{Type: "NAD", NAD: &meridio2v1alpha1.NAD{Interface: nadInterface, Name: "nad-1", Namespace: ns}},
+				{Type: "NAD", NAD: &meridio2v1alpha1.NAD{Interface: "net1", Name: "nad-1", Namespace: testNamespace}},
 			},
 			NetworkSubnets: []meridio2v1alpha1.NetworkSubnet{
 				{AttachmentType: "NAD", CIDRs: cidrs},
@@ -256,7 +256,7 @@ func TestExtractVIPs_Deduplication(t *testing.T) {
 
 func TestGetNetworkContexts(t *testing.T) {
 	gw := acceptedGateway("sllb-a", testControllerName)
-	gc := newGatewayConfig("sllb-a-config", testNamespace, []string{testSubnetV4, "fd00:100::/64"}, "net1")
+	gc := newGatewayConfig([]string{testSubnetV4, "fd00:100::/64"})
 	r, _ := setupReconciler(gw, gc)
 
 	subnetToType, err := r.getNetworkContexts(context.Background(), gw)
@@ -306,9 +306,51 @@ func TestGetSLLBRNextHops(t *testing.T) {
 
 // --- buildGatewayConnection tests ---
 
+func TestBuildGatewayConnection_SkipsDomainWithNoInterface(t *testing.T) {
+	// Gateway has both IPv4 and IPv6 subnets, but pod only has IPv4 interface
+	gw := acceptedGateway("sllb-a", testControllerName, "20.0.0.1", "2001:db8::1")
+	gc := newGatewayConfig([]string{testSubnetV4, "fd00:100::/64"})
+	sllbrPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sllb-sllb-a-abc",
+			Namespace: testNamespace,
+			Labels:    map[string]string{labelGatewayName: "sllb-a"},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	// Pod only has IPv4 address on net1 — no IPv6
+	targetPod := newPod("app-1", corev1.PodRunning, map[string]string{"app": "web"})
+	targetPod.Annotations = map[string]string{
+		"k8s.v1.cni.cncf.io/network-status": `[
+			{"name":"default","interface":"eth0","ips":["10.244.0.5"],"default":true},
+			{"name":"net1","interface":"net1","ips":["169.111.100.10"]}
+		]`,
+	}
+
+	r, _ := setupReconciler(gw, gc, sllbrPod, targetPod)
+	r.IPScraper = func(pod *corev1.Pod, cidr, _ string) string {
+		if cidr == testSubnetV4 {
+			return testNextHopV4
+		}
+		if cidr == "fd00:100::/64" {
+			return "fd00:100::3"
+		}
+		return ""
+	}
+
+	conn, err := r.buildGatewayConnection(context.Background(), targetPod, gw)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+
+	// Only IPv4 domain should be present — IPv6 skipped (no interface)
+	assert.Len(t, conn.Domains, 1)
+	assert.Equal(t, "IPv4", conn.Domains[0].IPFamily)
+	assert.Equal(t, "net1", conn.Domains[0].Network.InterfaceHint)
+}
+
 func TestBuildGatewayConnection_NamingConvention(t *testing.T) {
 	gw := acceptedGateway("sllb-a", testControllerName, "20.0.0.1", "2001:db8::1")
-	gc := newGatewayConfig("sllb-a-config", testNamespace, []string{testSubnetV4, "fd00:100::/64"}, "net1")
+	gc := newGatewayConfig([]string{testSubnetV4, "fd00:100::/64"})
 	sllbrPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "sllb-sllb-a-abc",
@@ -376,7 +418,7 @@ func TestResolveGatewayConnections_FullChain(t *testing.T) {
 		]`,
 	}
 	gw := acceptedGateway("sllb-a", testControllerName, "20.0.0.1")
-	gc := newGatewayConfig("sllb-a-config", testNamespace, []string{testSubnetV4}, "net1")
+	gc := newGatewayConfig([]string{testSubnetV4})
 	dg := newDG("dg-1", map[string]string{"app": "web"}, "sllb-a")
 	sllbrPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
