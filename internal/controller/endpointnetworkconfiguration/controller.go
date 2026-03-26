@@ -134,13 +134,12 @@ func (r *Reconciler) reconcileENC(ctx context.Context, pod *corev1.Pod, connecti
 		},
 	}
 
-	if err := ctrl.SetControllerReference(pod, desired, r.Scheme); err != nil {
-		return fmt.Errorf("failed to set owner reference: %w", err)
-	}
-
 	var existing meridio2v1alpha1.EndpointNetworkConfiguration
 	err := r.Get(ctx, client.ObjectKeyFromObject(desired), &existing)
 	if apierrors.IsNotFound(err) {
+		if err := ctrl.SetControllerReference(pod, desired, r.Scheme); err != nil {
+			return fmt.Errorf("failed to set owner reference: %w", err)
+		}
 		return r.Create(ctx, desired)
 	}
 	if err != nil {
