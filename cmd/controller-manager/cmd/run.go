@@ -40,6 +40,7 @@ import (
 	"github.com/nordix/meridio-2/internal/common/config"
 	"github.com/nordix/meridio-2/internal/common/prerequisites"
 	"github.com/nordix/meridio-2/internal/controller/distributiongroup"
+	"github.com/nordix/meridio-2/internal/controller/endpointnetworkconfiguration"
 	"github.com/nordix/meridio-2/internal/controller/gateway"
 	webhookv1alpha1 "github.com/nordix/meridio-2/internal/webhook/v1alpha1"
 )
@@ -189,6 +190,16 @@ func runManager(cfg *config.ManagerConfig) error {
 		Namespace:      cfg.Namespace,
 	}).SetupWithManager(mgr, cfg.EnableTopologyHints); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DistributionGroup")
+		return err
+	}
+
+	if err = (&endpointnetworkconfiguration.Reconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		ControllerName: cfg.ControllerName,
+		Namespace:      cfg.Namespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "EndpointNetworkConfiguration")
 		return err
 	}
 	// +kubebuilder:scaffold:builder

@@ -71,3 +71,15 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - meridio-2.nordix.org
+  resources:
+  - endpointnetworkconfigurations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
