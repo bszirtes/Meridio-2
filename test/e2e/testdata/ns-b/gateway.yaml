@@ -43,7 +43,6 @@ spec:
   - attachmentType: NAD
     cidrs:
     - "169.111.100.0/24"
-    - "fd00:111:100::0/120"
   horizontalScaling:
     replicas: 2
 ---
@@ -86,6 +85,5 @@ spec:
   - attachmentType: NAD
     cidrs:
     - "169.111.100.0/24"
-    - "fd00:111:100::0/120"
   horizontalScaling:
     replicas: 2

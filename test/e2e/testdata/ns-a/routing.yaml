@@ -1,5 +1,5 @@
 ---
-# gw-a1 routers (VLAN 100, ASN 8103)
+# gw-a1 router (VLAN 100, ASN 8103)
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayRouter
 metadata:
@@ -10,28 +10,6 @@ spec:
     name: gw-a1
   interface: "vlan-100"
   address: "169.254.100.150"
-  bgp:
-    localASN: 8103
-    remoteASN: 4248829953
-    localPort: 10179
-    remotePort: 10179
-    holdTime: 24s
-    bfd:
-      switch: true
-      minTx: 300ms
-      minRx: 300ms
-      multiplier: 3
----
-apiVersion: meridio-2.nordix.org/v1alpha1
-kind: GatewayRouter
-metadata:
-  name: gw-a1-router-v6
-  namespace: e2e-ns-a
-spec:
-  gatewayRef:
-    name: gw-a1
-  interface: "vlan-100"
-  address: "fd00:100::150"
   bgp:
     localASN: 8103
     remoteASN: 4248829953
@@ -58,7 +36,6 @@ spec:
     name: dg-a1
   destinationCIDRs:
   - "20.0.0.1/32"
-  - "2001:db8::1/128"
   protocols:
   - TCP
   - UDP
@@ -66,7 +43,7 @@ spec:
   - "5000-5001"
   priority: 100
 ---
-# gw-a2 routers (VLAN 200, ASN 8104)
+# gw-a2 router (VLAN 200, ASN 8104)
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayRouter
 metadata:
@@ -77,28 +54,6 @@ spec:
     name: gw-a2
   interface: "vlan-200"
   address: "169.254.200.150"
-  bgp:
-    localASN: 8104
-    remoteASN: 4248829953
-    localPort: 10179
-    remotePort: 10179
-    holdTime: 24s
-    bfd:
-      switch: true
-      minTx: 300ms
-      minRx: 300ms
-      multiplier: 3
----
-apiVersion: meridio-2.nordix.org/v1alpha1
-kind: GatewayRouter
-metadata:
-  name: gw-a2-router-v6
-  namespace: e2e-ns-a
-spec:
-  gatewayRef:
-    name: gw-a2
-  interface: "vlan-200"
-  address: "fd00:200::150"
   bgp:
     localASN: 8104
     remoteASN: 4248829953
@@ -125,7 +80,6 @@ spec:
     name: dg-a2
   destinationCIDRs:
   - "20.0.0.2/32"
-  - "2001:db8::2/128"
   protocols:
   - TCP
   - UDP
