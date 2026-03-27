@@ -155,12 +155,17 @@ func (b *Bird) generateConfig(vips []string, routers []*meridio2v1alpha1.Gateway
 		}
 	}
 
+	ifset := make(map[string]bool) // unique interface set (preserves insertion order via slice)
 	for _, r := range routers {
 		rd, err := toRouterData(r)
 		if err != nil {
 			return "", err
 		}
 		data.Routers = append(data.Routers, rd)
+		if r.Spec.Interface != "" && !ifset[r.Spec.Interface] {
+			ifset[r.Spec.Interface] = true
+			data.BGPInterfaces = append(data.BGPInterfaces, r.Spec.Interface)
+		}
 	}
 
 	var buf strings.Builder

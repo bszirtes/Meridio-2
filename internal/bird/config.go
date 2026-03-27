@@ -39,6 +39,7 @@ type birdConfigData struct {
 	IPv4VIPs      []string
 	IPv6VIPs      []string
 	Routers       []routerData
+	BGPInterfaces []string
 }
 
 type routerData struct {
@@ -84,7 +85,7 @@ template bgp BGP_TEMPLATE {
 	debug {events, states};
 	direct;
 	hold time 90;
-	bfd on;
+	bfd off;
 	graceful restart off;
 	setkey off;
 	ipv4 {
@@ -118,7 +119,13 @@ protocol kernel {
 }
 
 protocol bfd {
+{{- if .BGPInterfaces}}
+{{- range .BGPInterfaces}}
+	interface "{{.}}" {};
+{{- end}}
+{{- else}}
 	interface "*" {};
+{{- end}}
 }
 {{- if .IPv4VIPs}}
 

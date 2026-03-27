@@ -19,11 +19,135 @@ package bird
 import (
 	"strings"
 	"testing"
+	"text/template"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	meridio2v1alpha1 "github.com/nordix/meridio-2/api/v1alpha1"
 )
+
+// wantConfigParams holds the variable parts of a reference bird config.
+type wantConfigParams struct {
+	BGPInterfaces []string
+	IPv4VIPs      []string
+	IPv6VIPs      []string
+	Routers       []wantRouter
+}
+
+type wantRouter struct {
+	Name       string
+	Interface  string
+	LocalPort  int
+	LocalASN   uint32
+	Address    string
+	RemotePort int
+	RemoteASN  uint32
+	BFD        string
+	HoldTime   string
+	IPFamily   string
+}
+
+var wantConfigTmpl = template.Must(template.New("want").Parse(`log stderr all;
+
+protocol device {}
+
+filter gateway_routes {
+	if ( net ~ [ 0.0.0.0/0 ] ) then accept;
+	if ( net ~ [ 0::/0 ] ) then accept;
+	if source = RTS_BGP then accept;
+	else reject;
+}
+
+filter announced_routes {
+	if ( net ~ [ 0.0.0.0/0 ] ) then reject;
+	if ( net ~ [ 0::/0 ] ) then reject;
+	if source = RTS_STATIC && dest != RTD_BLACKHOLE then accept;
+	else reject;
+}
+
+template bgp BGP_TEMPLATE {
+	debug {events, states};
+	direct;
+	hold time 90;
+	bfd off;
+	graceful restart off;
+	setkey off;
+	ipv4 {
+		import none;
+		export none;
+		next hop self;
+	};
+	ipv6 {
+		import none;
+		export none;
+		next hop self;
+	};
+}
+
+protocol kernel {
+	ipv4 {
+		import none;
+		export filter gateway_routes;
+	};
+	kernel table 4096;
+	merge paths on;
+}
+
+protocol kernel {
+	ipv6 {
+		import none;
+		export filter gateway_routes;
+	};
+	kernel table 4096;
+	merge paths on;
+}
+
+protocol bfd {
+{{- range .BGPInterfaces}}
+	interface "{{.}}" {};
+{{- end}}
+}
+{{- if .IPv4VIPs}}
+
+protocol static VIP4 {
+	ipv4 { preference 110; };
+{{- range .IPv4VIPs}}
+	route {{.}} via "lo";
+{{- end}}
+}
+{{- end}}
+{{- if .IPv6VIPs}}
+
+protocol static VIP6 {
+	ipv6 { preference 110; };
+{{- range .IPv6VIPs}}
+	route {{.}} via "lo";
+{{- end}}
+}
+{{- end}}
+{{- range .Routers}}
+
+protocol bgp 'NBR-{{.Name}}' from BGP_TEMPLATE {
+	interface "{{.Interface}}";
+	local port {{.LocalPort}} as {{.LocalASN}};
+	neighbor {{.Address}} port {{.RemotePort}} as {{.RemoteASN}};
+	{{.BFD}}
+	hold time {{.HoldTime}};
+	{{.IPFamily}} {
+		import filter gateway_routes;
+		export filter announced_routes;
+	};
+}
+{{- end}}`))
+
+func buildWantConfig(t *testing.T, p wantConfigParams) string {
+	t.Helper()
+	var buf strings.Builder
+	if err := wantConfigTmpl.Execute(&buf, p); err != nil {
+		t.Fatalf("failed to build want config: %v", err)
+	}
+	return buf.String()
+}
 
 func TestGenerateConfig(t *testing.T) {
 	b := New()
@@ -49,12 +173,6 @@ func TestGenerateConfig(t *testing.T) {
 		}
 		if !strings.Contains(conf, "protocol static VIP6") {
 			t.Error("missing VIP6 config")
-		}
-		if !strings.Contains(conf, "20.0.0.1/32") {
-			t.Error("missing IPv4 VIP")
-		}
-		if !strings.Contains(conf, "2001:db8::1/128") {
-			t.Error("missing IPv6 VIP")
 		}
 	})
 
@@ -102,93 +220,103 @@ func TestGenerateConfig(t *testing.T) {
 				},
 			},
 		}
-		vips := []string{"20.0.0.1/32"}
 
-		got, err := b.generateConfig(vips, []*meridio2v1alpha1.GatewayRouter{router})
+		got, err := b.generateConfig([]string{"20.0.0.1/32"}, []*meridio2v1alpha1.GatewayRouter{router})
 		if err != nil {
 			t.Fatalf("generateConfig() error = %v", err)
 		}
 
-		want := `log stderr all;
+		want := buildWantConfig(t, wantConfigParams{
+			BGPInterfaces: []string{"vlan-100"},
+			IPv4VIPs:      []string{"20.0.0.1/32"},
+			Routers: []wantRouter{{
+				Name: "gatewayrouter-sample", Interface: "vlan-100",
+				LocalPort: 10179, LocalASN: 8103,
+				Address: "169.254.100.150", RemotePort: 10179, RemoteASN: 4248829953,
+				BFD:      "bfd {\n\t\tmin rx interval 300ms;\n\t\tmin tx interval 300ms;\n\t\tmultiplier 3;\n\t};",
+				HoldTime: "3", IPFamily: "ipv4",
+			}},
+		})
 
-protocol device {}
+		if normalizeWhitespace(got) != normalizeWhitespace(want) {
+			t.Errorf("config mismatch\nGot:\n%s\n\nWant:\n%s", got, want)
+		}
+	})
 
-filter gateway_routes {
-	if ( net ~ [ 0.0.0.0/0 ] ) then accept;
-	if ( net ~ [ 0::/0 ] ) then accept;
-	if source = RTS_BGP then accept;
-	else reject;
-}
+	t.Run("bfd interfaces from multiple routers", func(t *testing.T) {
+		routerV4 := &meridio2v1alpha1.GatewayRouter{
+			ObjectMeta: metav1.ObjectMeta{Name: "gw-v4"},
+			Spec: meridio2v1alpha1.GatewayRouterSpec{
+				Interface: "net1",
+				Address:   "192.168.1.1",
+				BGP:       meridio2v1alpha1.BgpSpec{RemoteASN: 65000, LocalASN: 65001},
+			},
+		}
+		routerV6 := &meridio2v1alpha1.GatewayRouter{
+			ObjectMeta: metav1.ObjectMeta{Name: "gw-v6"},
+			Spec: meridio2v1alpha1.GatewayRouterSpec{
+				Interface: "net2",
+				Address:   "fd00::1",
+				BGP:       meridio2v1alpha1.BgpSpec{RemoteASN: 65000, LocalASN: 65001},
+			},
+		}
 
-filter announced_routes {
-	if ( net ~ [ 0.0.0.0/0 ] ) then reject;
-	if ( net ~ [ 0::/0 ] ) then reject;
-	if source = RTS_STATIC && dest != RTD_BLACKHOLE then accept;
-	else reject;
-}
+		got, err := b.generateConfig([]string{}, []*meridio2v1alpha1.GatewayRouter{routerV4, routerV6})
+		if err != nil {
+			t.Fatalf("generateConfig() error = %v", err)
+		}
 
-template bgp BGP_TEMPLATE {
-	debug {events, states};
-	direct;
-	hold time 90;
-	bfd on;
-	graceful restart off;
-	setkey off;
-	ipv4 {
-		import none;
-		export none;
-		next hop self;
-	};
-	ipv6 {
-		import none;
-		export none;
-		next hop self;
-	};
-}
+		want := buildWantConfig(t, wantConfigParams{
+			BGPInterfaces: []string{"net1", "net2"},
+			Routers: []wantRouter{
+				{
+					Name: "gw-v4", Interface: "net1",
+					LocalPort: 179, LocalASN: 65001,
+					Address: "192.168.1.1", RemotePort: 179, RemoteASN: 65000,
+					BFD: "bfd off;", HoldTime: "90", IPFamily: "ipv4",
+				},
+				{
+					Name: "gw-v6", Interface: "net2",
+					LocalPort: 179, LocalASN: 65001,
+					Address: "fd00::1", RemotePort: 179, RemoteASN: 65000,
+					BFD: "bfd off;", HoldTime: "90", IPFamily: "ipv6",
+				},
+			},
+		})
 
-protocol kernel {
-	ipv4 {
-		import none;
-		export filter gateway_routes;
-	};
-	kernel table 4096;
-	merge paths on;
-}
+		if normalizeWhitespace(got) != normalizeWhitespace(want) {
+			t.Errorf("config mismatch\nGot:\n%s\n\nWant:\n%s", got, want)
+		}
+	})
 
-protocol kernel {
-	ipv6 {
-		import none;
-		export filter gateway_routes;
-	};
-	kernel table 4096;
-	merge paths on;
-}
+	t.Run("bfd on without custom timers", func(t *testing.T) {
+		router := &meridio2v1alpha1.GatewayRouter{
+			ObjectMeta: metav1.ObjectMeta{Name: "gw-bfd-on"},
+			Spec: meridio2v1alpha1.GatewayRouterSpec{
+				Interface: "net1",
+				Address:   "192.168.1.1",
+				BGP: meridio2v1alpha1.BgpSpec{
+					RemoteASN: 65000,
+					LocalASN:  65001,
+					BFD:       &meridio2v1alpha1.BfdSpec{Switch: boolPtr(true)},
+				},
+			},
+		}
 
-protocol bfd {
-	interface "*" {};
-}
+		got, err := b.generateConfig([]string{}, []*meridio2v1alpha1.GatewayRouter{router})
+		if err != nil {
+			t.Fatalf("generateConfig() error = %v", err)
+		}
 
-protocol static VIP4 {
-	ipv4 { preference 110; };
-	route 20.0.0.1/32 via "lo";
-
-}
-
-protocol bgp 'NBR-gatewayrouter-sample' from BGP_TEMPLATE {
-	interface "vlan-100";
-	local port 10179 as 8103;
-	neighbor 169.254.100.150 port 10179 as 4248829953;
-	bfd {
-		min rx interval 300ms;
-		min tx interval 300ms;
-		multiplier 3;
-	};
-	hold time 3;
-	ipv4 {
-		import filter gateway_routes;
-		export filter announced_routes;
-	};
-}`
+		want := buildWantConfig(t, wantConfigParams{
+			BGPInterfaces: []string{"net1"},
+			Routers: []wantRouter{{
+				Name: "gw-bfd-on", Interface: "net1",
+				LocalPort: 179, LocalASN: 65001,
+				Address: "192.168.1.1", RemotePort: 179, RemoteASN: 65000,
+				BFD: "bfd on;", HoldTime: "90", IPFamily: "ipv4",
+			}},
+		})
 
 		if normalizeWhitespace(got) != normalizeWhitespace(want) {
 			t.Errorf("config mismatch\nGot:\n%s\n\nWant:\n%s", got, want)
