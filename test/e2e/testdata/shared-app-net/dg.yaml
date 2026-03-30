@@ -3,7 +3,7 @@ apiVersion: meridio-2.nordix.org/v1alpha1
 kind: DistributionGroup
 metadata:
   name: dg-b1
-  namespace: e2e-ns-b
+  namespace: e2e-shared-app-net
 spec:
   selector:
     matchLabels:
@@ -17,7 +17,7 @@ apiVersion: meridio-2.nordix.org/v1alpha1
 kind: DistributionGroup
 metadata:
   name: dg-b2
-  namespace: e2e-ns-b
+  namespace: e2e-shared-app-net
 spec:
   selector:
     matchLabels:

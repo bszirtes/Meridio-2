@@ -2,21 +2,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: target-a
-  namespace: e2e-ns-a
+  name: target-b
+  namespace: e2e-shared-app-net
   labels:
-    app: target-a
+    app: target-b
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: target-a
+      app: target-b
   template:
     metadata:
       labels:
-        app: target-a
+        app: target-b
       annotations:
-        k8s.v1.cni.cncf.io/networks: app-net-a1, app-net-a2
+        k8s.v1.cni.cncf.io/networks: app-net-b
     spec:
       serviceAccountName: meridio-2-network-sidecar
       containers:

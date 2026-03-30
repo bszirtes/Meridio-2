@@ -17,12 +17,12 @@ VPN Gateway (Docker, BIRD 3.x)
 ├── vlan3 (VLAN 300) 169.254.101.150 → gw-b1 (ASN 8105)
 └── vlan4 (VLAN 400) 169.254.201.150 → gw-b2 (ASN 8106)
 
-e2e-ns-a (separate app-nets per gateway):
+e2e-separate-app-nets (separate app-nets per gateway):
   gw-a1 → VIP 20.0.0.1  (app-net-a1, 169.111.100.0/24)
   gw-a2 → VIP 20.0.0.2  (app-net-a2, 169.111.200.0/24)
   2 target pods, each connected to both app-nets
 
-e2e-ns-b (shared app-net across gateways):
+e2e-shared-app-net (shared app-net across gateways):
   gw-b1 → VIP 30.0.0.1  (app-net-b, 169.111.100.0/24)
   gw-b2 → VIP 30.0.0.2  (app-net-b, 169.111.100.0/24)
   2 target pods, each connected to shared app-net
@@ -33,109 +33,26 @@ e2e-ns-b (shared app-net across gateways):
 ### Prerequisites
 
 - Docker
-- Kind
-- kubectl
-- jq (for traffic test output parsing)
+- Kind cluster with Multus, Whereabouts, Gateway API CRDs, cert-manager
+- VPN gateway container running on the Kind network
+- Controller-manager deployed per namespace
 
-### Step 0: Create Kind Cluster
-
-```bash
-./test/e2e/scripts/setup-kind.sh
-```
-
-This creates cluster `meridio-e2e` with 2 workers, installs Multus, Whereabouts,
-Gateway API CRDs, and starts the VPN gateway container.
-
-### Step 1: Install Standard CNI Plugins
-
-Kind nodes don't include vlan/macvlan/bridge plugins by default:
-
-```bash
-for node in $(kind get nodes --name meridio-e2e); do
-  docker exec $node bash -c \
-    'curl -sL https://github.com/containernetworking/plugins/releases/download/v1.6.1/cni-plugins-linux-amd64-v1.6.1.tgz | tar -xz -C /opt/cni/bin/'
-done
-```
-
-### Step 2: Build and Load Images
-
-```bash
-export REG=registry.nordix.org/cloud-native/meridio-2
-export TAG=e2e-$(git rev-parse --short HEAD)
-
-for img in controller-manager stateless-load-balancer router network-sidecar; do
-  make $img BUILD_STEPS="build tag" REGISTRY=$REG VERSION=$TAG
-  kind load docker-image $REG/$img:$TAG --name meridio-e2e
-done
-```
-
-### Step 3: Install CRDs and cert-manager
-
-```bash
-make install
-make cert-manager
-```
-
-### Step 4: Deploy Controller-Manager Per Namespace
-
-```bash
-make deploy NAMESPACE=e2e-ns-a REGISTRY=$REG VERSION_CONTROLLER_MANAGER=$TAG
-make deploy NAMESPACE=e2e-ns-b REGISTRY=$REG VERSION_CONTROLLER_MANAGER=$TAG
-
-# Patch ClusterRoleBinding (make deploy overwrites subjects on second run)
-kubectl patch clusterrolebinding meridio-2-manager-rolebinding --type='json' \
-  -p='[{"op":"add","path":"/subjects/-","value":{"kind":"ServiceAccount","name":"meridio-2-controller-manager","namespace":"e2e-ns-a"}}]'
-```
-
-### Step 5: Update Templates ConfigMap with Real Image Refs
-
-The LB deployment template uses generic image names. Substitute with versioned tags:
-
-```bash
-for ns in e2e-ns-a e2e-ns-b; do
-  sed "s|stateless-load-balancer:latest|$REG/stateless-load-balancer:$TAG|;s|router:latest|$REG/router:$TAG|" \
-    config/templates/lb-deployment.yaml > /tmp/lb.yaml
-  kubectl create configmap meridio-2-stateless-load-balancer-templates \
-    --from-file=lb-deployment.yaml=/tmp/lb.yaml -n $ns --dry-run=client -o yaml | kubectl apply -f -
-done
-```
-
-### Step 6: Apply Test Resources
+### Apply Test Resources
 
 ```bash
 kubectl apply -f test/e2e/testdata/common/
-kubectl apply -f test/e2e/testdata/ns-a/
-kubectl apply -f test/e2e/testdata/ns-b/
+kubectl apply -f test/e2e/testdata/separate-app-nets/
+kubectl apply -f test/e2e/testdata/shared-app-net/
 ```
 
-### Step 7: Fix Sidecar Image on Targets
-
-Target YAML uses generic `network-sidecar:latest`. Patch with the real image:
+### Run Tests
 
 ```bash
-kubectl set image deployment/target-a -n e2e-ns-a network-sidecar=$REG/network-sidecar:$TAG
-kubectl set image deployment/target-b -n e2e-ns-b network-sidecar=$REG/network-sidecar:$TAG
+go test ./test/e2e/ -tags e2e -v -timeout 20m
 ```
 
-### Step 8: Wait for System Ready
-
-```bash
-# Wait for controller-managers
-kubectl wait --for=condition=Available --timeout=120s \
-  -n e2e-ns-a deployment/meridio-2-controller-manager
-kubectl wait --for=condition=Available --timeout=120s \
-  -n e2e-ns-b deployment/meridio-2-controller-manager
-
-# Wait for all SLLBR pods (2 per gateway × 4 gateways = 8 pods)
-kubectl wait --for=condition=Ready --timeout=120s \
-  -n e2e-ns-a pods -l gateway.networking.k8s.io/gateway-name
-kubectl wait --for=condition=Ready --timeout=120s \
-  -n e2e-ns-b pods -l gateway.networking.k8s.io/gateway-name
-
-# Wait for all target pods
-kubectl wait --for=condition=Ready --timeout=120s -n e2e-ns-a pods -l app=target-a
-kubectl wait --for=condition=Ready --timeout=120s -n e2e-ns-b pods -l app=target-b
-```
+Each test (`separate-app-nets`, `shared-app-net`) deploys its own namespace
+resources in `BeforeAll` and cleans up in `AfterAll`.
 
 ---
 
@@ -144,8 +61,8 @@ kubectl wait --for=condition=Ready --timeout=120s -n e2e-ns-b pods -l app=target
 ## 1. Verify Pods Running
 
 ```bash
-kubectl get pods -n e2e-ns-a -o wide
-kubectl get pods -n e2e-ns-b -o wide
+kubectl get pods -n e2e-separate-app-nets -o wide
+kubectl get pods -n e2e-shared-app-net -o wide
 ```
 
 Expected: 8 SLLBR pods (2/2 Running, 2 per gateway), 4 target pods (2/2 Running).
@@ -153,16 +70,7 @@ Expected: 8 SLLBR pods (2/2 Running, 2 per gateway), 4 target pods (2/2 Running)
 ## 2. Verify BGP Sessions (8 sessions, 2 per gateway)
 
 ```bash
-# VPN gateway side
 docker exec vpn-gateway birdc show protocols | grep Established
-
-# SLLBR side
-for ns in e2e-ns-a e2e-ns-b; do
-  for pod in $(kubectl get pods -n $ns -l gateway.networking.k8s.io/gateway-name -o jsonpath='{.items[*].metadata.name}'); do
-    echo "--- $pod ---"
-    kubectl exec $pod -n $ns -c router -- birdc -s /run/bird/bird.ctl show protocols | grep Established
-  done
-done
 ```
 
 Expected: 8 BGP sessions Established (4 gateways × 2 replicas).
@@ -197,54 +105,16 @@ Expected:
     nexthop via 169.254.201.2 dev vlan4 weight 1
 ```
 
-## 5. Verify ENCs (Multi-Gateway Content)
+## 5. Verify ENCs
 
 ```bash
-# ns-a: each target should have gw-a1 + gw-a2
-kubectl get enc -n e2e-ns-a -o jsonpath='{range .items[*]}ENC: {.metadata.name}{"\n"}{range .spec.gateways[*]}  gw: {.name}{"\n"}{end}{"\n"}{end}'
-
-# ns-b: each target should have gw-b1 + gw-b2
-kubectl get enc -n e2e-ns-b -o jsonpath='{range .items[*]}ENC: {.metadata.name}{"\n"}{range .spec.gateways[*]}  gw: {.name}{"\n"}{end}{"\n"}{end}'
+kubectl get enc -n e2e-separate-app-nets -o jsonpath='{range .items[*]}ENC: {.metadata.name}{"\n"}{range .spec.gateways[*]}  gw: {.name}{"\n"}{end}{"\n"}{end}'
+kubectl get enc -n e2e-shared-app-net -o jsonpath='{range .items[*]}ENC: {.metadata.name}{"\n"}{range .spec.gateways[*]}  gw: {.name}{"\n"}{end}{"\n"}{end}'
 ```
 
 Expected: 2 ENCs per namespace, each with 2 gateway entries.
 
-## 6. Verify Sidecar Configuration (VIPs + Policy Routing)
-
-```bash
-TARGET_A=$(kubectl get pods -n e2e-ns-a -l app=target-a -o jsonpath='{.items[0].metadata.name}')
-TARGET_B=$(kubectl get pods -n e2e-ns-b -l app=target-b -o jsonpath='{.items[0].metadata.name}')
-
-# ns-a: VIPs on separate interfaces (net-a1, net-a2)
-kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip addr show | grep "/32"
-kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip rule show
-kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip route show table 50000
-kubectl exec $TARGET_A -n e2e-ns-a -c network-sidecar -- ip route show table 50001
-
-# ns-b: VIPs on same interface (net-b), different next-hops
-kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip addr show | grep "/32"
-kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip rule show
-kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip route show table 50000
-kubectl exec $TARGET_B -n e2e-ns-b -c network-sidecar -- ip route show table 50001
-```
-
-Expected for ns-a (separate app-nets):
-```
-VIPs: 20.0.0.1/32 on net-a1, 20.0.0.2/32 on net-a2
-Rules: from 20.0.0.1 lookup 50000, from 20.0.0.2 lookup 50001
-Table 50000: default nexthop via 169.111.100.x dev net-a1  (gw-a1, ECMP)
-Table 50001: default nexthop via 169.111.200.x dev net-a2  (gw-a2, ECMP)
-```
-
-Expected for ns-b (shared app-net):
-```
-VIPs: 30.0.0.1/32 on net-b, 30.0.0.2/32 on net-b
-Rules: from 30.0.0.1 lookup 50000, from 30.0.0.2 lookup 50001
-Table 50000: default nexthop via 169.111.100.x dev net-b  (gw-b1, ECMP)
-Table 50001: default nexthop via 169.111.100.y dev net-b  (gw-b2, ECMP, different next-hop)
-```
-
-## 7. Traffic Tests — ICMP
+## 6. Traffic Tests
 
 ```bash
 for vip in 20.0.0.1 20.0.0.2 30.0.0.1 30.0.0.2; do
@@ -252,10 +122,6 @@ for vip in 20.0.0.1 20.0.0.2 30.0.0.1 30.0.0.2; do
   echo "$vip: ${loss}% loss"
 done
 ```
-
-Expected: 0% packet loss on all 4 VIPs.
-
-## 8. Traffic Tests — TCP Load Balancing
 
 ```bash
 for spec in "gw-a1,20.0.0.1" "gw-a2,20.0.0.2" "gw-b1,30.0.0.1" "gw-b2,30.0.0.2"; do
@@ -267,44 +133,26 @@ for spec in "gw-a1,20.0.0.1" "gw-a2,20.0.0.2" "gw-b1,30.0.0.1" "gw-b2,30.0.0.2";
 done
 ```
 
-Expected: 2 hosts per gateway, 0 lost connections.
-
-## 9. Traffic Tests — UDP Load Balancing
-
-```bash
-for spec in "gw-a1,20.0.0.1" "gw-a2,20.0.0.2" "gw-b1,30.0.0.1" "gw-b2,30.0.0.2"; do
-  IFS=, read gw vip <<< "$spec"
-  out=$(docker exec vpn-gateway /opt/ctraffic -address $vip:5001 -nconn 100 -timeout 10s -udp -stats all)
-  nhosts=$(echo "$out" | jq '[.ConnStats[].Host // empty] | unique | length')
-  lost=$(echo "$out" | jq '.FailedConnects')
-  echo "$gw UDP: $nhosts hosts, $lost lost"
-done
-```
-
-Expected: 2 hosts per gateway, 0 lost connections.
-
 ---
 
 ## Verified Results
 
 ```
-ICMP (4 tests):
-  [PASS] ping 20.0.0.1:   0% loss
-  [PASS] ping 20.0.0.2:   0% loss
-  [PASS] ping 30.0.0.1:   0% loss
-  [PASS] ping 30.0.0.2:   0% loss
+separate-app-nets:
+  [PASS] gw-a1 ICMP: 0% loss
+  [PASS] gw-a2 ICMP: 0% loss
+  [PASS] gw-a1 TCP:  2 hosts, 0 lost
+  [PASS] gw-a2 TCP:  2 hosts, 0 lost
+  [PASS] gw-a1 UDP:  2 hosts, 0 lost
+  [PASS] gw-a2 UDP:  2 hosts, 0 lost
 
-TCP load balancing (4 tests):
-  [PASS] gw-a1 TCP: 2 hosts, 0 lost
-  [PASS] gw-a2 TCP: 2 hosts, 0 lost
-  [PASS] gw-b1 TCP: 2 hosts, 0 lost
-  [PASS] gw-b2 TCP: 2 hosts, 0 lost
-
-UDP load balancing (4 tests):
-  [PASS] gw-a1 UDP: 2 hosts, 0 lost
-  [PASS] gw-a2 UDP: 2 hosts, 0 lost
-  [PASS] gw-b1 UDP: 2 hosts, 0 lost
-  [PASS] gw-b2 UDP: 2 hosts, 0 lost
+shared-app-net:
+  [PASS] gw-b1 ICMP: 0% loss
+  [PASS] gw-b2 ICMP: 0% loss
+  [PASS] gw-b1 TCP:  2 hosts, 0 lost
+  [PASS] gw-b2 TCP:  2 hosts, 0 lost
+  [PASS] gw-b1 UDP:  2 hosts, 0 lost
+  [PASS] gw-b2 UDP:  2 hosts, 0 lost
 
 Results: 12 passed, 0 failed
 ```

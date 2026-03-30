@@ -4,7 +4,7 @@ apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: vlan-300
-  namespace: e2e-ns-b
+  namespace: e2e-shared-app-net
 spec:
   config: |
     {
@@ -25,7 +25,7 @@ apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: vlan-400
-  namespace: e2e-ns-b
+  namespace: e2e-shared-app-net
 spec:
   config: |
     {
@@ -46,7 +46,7 @@ apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: app-net-b
-  namespace: e2e-ns-b
+  namespace: e2e-shared-app-net
 spec:
   config: |
     {

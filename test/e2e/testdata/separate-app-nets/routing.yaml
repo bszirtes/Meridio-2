@@ -1,17 +1,17 @@
 ---
-# gw-b1 router (VLAN 300, ASN 8105)
+# gw-a1 router (VLAN 100, ASN 8103)
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayRouter
 metadata:
-  name: gw-b1-router-v4
-  namespace: e2e-ns-b
+  name: gw-a1-router-v4
+  namespace: e2e-separate-app-nets
 spec:
   gatewayRef:
-    name: gw-b1
-  interface: "vlan-300"
-  address: "169.254.101.150"
+    name: gw-a1
+  interface: "vlan-100"
+  address: "169.254.100.150"
   bgp:
-    localASN: 8105
+    localASN: 8103
     remoteASN: 4248829953
     localPort: 10179
     remotePort: 10179
@@ -25,17 +25,17 @@ spec:
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: L34Route
 metadata:
-  name: route-b1
-  namespace: e2e-ns-b
+  name: route-a1
+  namespace: e2e-separate-app-nets
 spec:
   parentRefs:
-  - name: gw-b1
+  - name: gw-a1
   backendRefs:
   - group: meridio-2.nordix.org
     kind: DistributionGroup
-    name: dg-b1
+    name: dg-a1
   destinationCIDRs:
-  - "30.0.0.1/32"
+  - "20.0.0.1/32"
   protocols:
   - TCP
   - UDP
@@ -43,19 +43,19 @@ spec:
   - "5000-5001"
   priority: 100
 ---
-# gw-b2 router (VLAN 400, ASN 8106)
+# gw-a2 router (VLAN 200, ASN 8104)
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayRouter
 metadata:
-  name: gw-b2-router-v4
-  namespace: e2e-ns-b
+  name: gw-a2-router-v4
+  namespace: e2e-separate-app-nets
 spec:
   gatewayRef:
-    name: gw-b2
-  interface: "vlan-400"
-  address: "169.254.201.150"
+    name: gw-a2
+  interface: "vlan-200"
+  address: "169.254.200.150"
   bgp:
-    localASN: 8106
+    localASN: 8104
     remoteASN: 4248829953
     localPort: 10179
     remotePort: 10179
@@ -69,17 +69,17 @@ spec:
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: L34Route
 metadata:
-  name: route-b2
-  namespace: e2e-ns-b
+  name: route-a2
+  namespace: e2e-separate-app-nets
 spec:
   parentRefs:
-  - name: gw-b2
+  - name: gw-a2
   backendRefs:
   - group: meridio-2.nordix.org
     kind: DistributionGroup
-    name: dg-b2
+    name: dg-a2
   destinationCIDRs:
-  - "30.0.0.2/32"
+  - "20.0.0.2/32"
   protocols:
   - TCP
   - UDP

@@ -2,14 +2,14 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: e2e-ns-a
+  name: e2e-separate-app-nets
 ---
 # Gateway A1 on VLAN 100 with app-net-a1
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: gw-a1
-  namespace: e2e-ns-a
+  namespace: e2e-separate-app-nets
 spec:
   gatewayClassName: meridio
   infrastructure:
@@ -26,18 +26,18 @@ apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayConfiguration
 metadata:
   name: gwconfig-a1
-  namespace: e2e-ns-a
+  namespace: e2e-separate-app-nets
 spec:
   networkAttachments:
   - type: NAD
     nad:
       name: vlan-100
-      namespace: e2e-ns-a
+      namespace: e2e-separate-app-nets
       interface: vlan-100
   - type: NAD
     nad:
       name: app-net-a1
-      namespace: e2e-ns-a
+      namespace: e2e-separate-app-nets
       interface: net-a1
   networkSubnets:
   - attachmentType: NAD
@@ -51,7 +51,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: gw-a2
-  namespace: e2e-ns-a
+  namespace: e2e-separate-app-nets
 spec:
   gatewayClassName: meridio
   infrastructure:
@@ -68,18 +68,18 @@ apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayConfiguration
 metadata:
   name: gwconfig-a2
-  namespace: e2e-ns-a
+  namespace: e2e-separate-app-nets
 spec:
   networkAttachments:
   - type: NAD
     nad:
       name: vlan-200
-      namespace: e2e-ns-a
+      namespace: e2e-separate-app-nets
       interface: vlan-200
   - type: NAD
     nad:
       name: app-net-a2
-      namespace: e2e-ns-a
+      namespace: e2e-separate-app-nets
       interface: net-a2
   networkSubnets:
   - attachmentType: NAD

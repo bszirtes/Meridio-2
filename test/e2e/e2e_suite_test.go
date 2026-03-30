@@ -21,7 +21,6 @@ package e2e
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"testing"
 
@@ -31,17 +30,9 @@ import (
 	"github.com/nordix/meridio-2/test/utils"
 )
 
-var (
-	// managerImage is the manager image to be built and loaded for testing.
-	managerImage = "example.com/meridio-2:v0.0.1"
-	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
-	shouldCleanupCertManager = false
-)
-
-// TestE2E runs the e2e test suite to validate the solution in an isolated environment.
-// The default setup requires Kind and CertManager.
-//
-// To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
+// TestE2E runs the e2e test suite.
+// Expects a running Kind cluster with Multus, Whereabouts, Gateway API CRDs,
+// cert-manager, controller-manager deployed, and VPN gateway container running.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting meridio-2 e2e test suite\n")
@@ -49,22 +40,9 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	By("building the manager image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage))
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
-
-	// TODO(user): If you want to change the e2e test vendor from Kind,
-	// ensure the image is built and available, then remove the following block.
-	By("loading the manager image on Kind")
-	err = utils.LoadImageToKindClusterWithName(managerImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
-
-	setupCertManager()
-
 	By("applying cluster-scoped common resources")
-	cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/common/")
-	_, err = utils.Run(cmd)
+	cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/common/")
+	_, err := utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply common testdata (GatewayClass)")
 })
 
@@ -72,39 +50,4 @@ var _ = AfterSuite(func() {
 	By("cleaning up cluster-scoped common resources")
 	cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/common/", "--ignore-not-found")
 	_, _ = utils.Run(cmd)
-
-	teardownCertManager()
 })
-
-// setupCertManager installs CertManager if needed for webhook tests.
-// Skips installation if CERT_MANAGER_INSTALL_SKIP=true or if already present.
-func setupCertManager() {
-	if os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true" {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping CertManager installation (CERT_MANAGER_INSTALL_SKIP=true)\n")
-		return
-	}
-
-	By("checking if CertManager is already installed")
-	if utils.IsCertManagerCRDsInstalled() {
-		_, _ = fmt.Fprintf(GinkgoWriter, "CertManager is already installed. Skipping installation.\n")
-		return
-	}
-
-	// Mark for cleanup before installation to handle interruptions and partial installs.
-	shouldCleanupCertManager = true
-
-	By("installing CertManager")
-	Expect(utils.InstallCertManager()).To(Succeed(), "Failed to install CertManager")
-}
-
-// teardownCertManager uninstalls CertManager if it was installed by setupCertManager.
-// This ensures we only remove what we installed.
-func teardownCertManager() {
-	if !shouldCleanupCertManager {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping CertManager cleanup (not installed by this suite)\n")
-		return
-	}
-
-	By("uninstalling CertManager")
-	utils.UninstallCertManager()
-}
