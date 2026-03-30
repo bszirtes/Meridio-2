@@ -15,6 +15,7 @@ spec:
     spec:
       serviceAccountName: stateless-load-balancer
       securityContext:
+        runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       affinity:
@@ -43,9 +44,12 @@ spec:
           sysctl -w net.ipv6.conf.all.accept_dad=0
         securityContext:
           privileged: true
+          runAsNonRoot: false
       containers:
       - name: loadbalancer
-        image: stateless-load-balancer:latest
+        image: registry.nordix.org/cloud-native/meridio-2/stateless-load-balancer:latest
+        args:
+          - run
         env:
         - name: MERIDIO_GATEWAY_NAME
           value:  # to be filled by operator
@@ -75,10 +79,9 @@ spec:
             cpu: 500m
             memory: 512Mi
       - name: router
-        image: router:latest
-        command: ["./router"]
+        image: registry.nordix.org/cloud-native/meridio-2/router:latest
         args:
-        - run
+          - run
         env:
         - name: MERIDIO_GATEWAY_NAME
           value:  # to be filled by operator
