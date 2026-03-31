@@ -40,7 +40,11 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 ################################################################################
 
 .PHONY: cluster
-cluster: multus cni-plugins whereabouts cert-manager gateway-api kind-network vpn-gateway ## Setup cluster dependencies.
+cluster: kustomize multus cni-plugins whereabouts cert-manager gateway-api kind-network vpn-gateway ## Setup cluster dependencies.
+
+.PHONY: kustomize
+kustomize: ## Install kustomize from parent Makefile.
+	$(MAKE) -C $(PROJECT_ROOT) kustomize
 
 .PHONY: multus
 multus: ## Install Multus CNI.
