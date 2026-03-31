@@ -142,9 +142,10 @@ deploy-common-appnetwork: cluster ## Deploy common-appnetwork topology.
 	$(KUBECTL) apply -f $$SUITE_DIR/gateway.yaml -n $$NS; \
 	$(KUBECTL) apply -f $$SUITE_DIR/dg.yaml -n $$NS; \
 	$(KUBECTL) apply -f $$SUITE_DIR/routing.yaml -n $$NS; \
-	$(KUBECTL) wait --for=condition=Available --timeout=120s -n $$NS deployment/sllb-gw-b1 deployment/sllb-gw-b2; \
+	until $(KUBECTL) get deployment sllb-gw-b1 -n $$NS >/dev/null 2>&1 && $(KUBECTL) get deployment sllb-gw-b2 -n $$NS >/dev/null 2>&1; do sleep 1; done; \
+	$(KUBECTL) wait --for=condition=Available --timeout=180s -n $$NS deployment/sllb-gw-b1 deployment/sllb-gw-b2; \
 	$(KUBECTL) apply -f $$SUITE_DIR/targets.yaml -n $$NS; \
-	$(KUBECTL) wait --for=condition=Available --timeout=120s -n $$NS deployment/target-b
+	$(KUBECTL) wait --for=condition=Available --timeout=180s -n $$NS deployment/target-b
 
 .PHONY: test-common-appnetwork
 test-common-appnetwork: ## Run e2e tests for common-appnetwork suite.
@@ -185,9 +186,10 @@ deploy-separate-appnetwork: cluster ## Deploy separate-appnetwork topology.
 	$(KUBECTL) apply -f $$SUITE_DIR/gateway.yaml -n $$NS; \
 	$(KUBECTL) apply -f $$SUITE_DIR/dg.yaml -n $$NS; \
 	$(KUBECTL) apply -f $$SUITE_DIR/routing.yaml -n $$NS; \
-	$(KUBECTL) wait --for=condition=Available --timeout=120s -n $$NS deployment/sllb-gw-a1 deployment/sllb-gw-a2; \
+	until $(KUBECTL) get deployment sllb-gw-a1 -n $$NS >/dev/null 2>&1 && $(KUBECTL) get deployment sllb-gw-a2 -n $$NS >/dev/null 2>&1; do sleep 1; done; \
+	$(KUBECTL) wait --for=condition=Available --timeout=180s -n $$NS deployment/sllb-gw-a1 deployment/sllb-gw-a2; \
 	$(KUBECTL) apply -f $$SUITE_DIR/targets.yaml -n $$NS; \
-	$(KUBECTL) wait --for=condition=Available --timeout=120s -n $$NS deployment/target-a
+	$(KUBECTL) wait --for=condition=Available --timeout=180s -n $$NS deployment/target-a
 
 .PHONY: test-separate-appnetwork
 test-separate-appnetwork: ## Run e2e tests for separate-appnetwork suite.
