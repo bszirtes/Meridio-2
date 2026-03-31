@@ -76,7 +76,7 @@ spec:
       privileged: true
   containers:
   - name: router
-    image: localhost:5001/router
+    image: registry.nordix.org/cloud-native/meridio-2/router:latest
     securityContext:
       privileged: true
     imagePullPolicy: IfNotPresent
