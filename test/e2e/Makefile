@@ -114,6 +114,42 @@ cluster-cleanup: ## Cleanup cluster dependencies.
 	docker network rm $(BREAKOUT_NETWORK) 2>/dev/null || true
 
 ################################################################################
+# Helper Functions
+################################################################################
+
+# deploy-suite: Deploy a test suite
+# Args: $(1)=namespace, $(2)=suite-dir, $(3)=suite-label, $(4)=sllb-deployments
+define deploy-suite
+	@NS=$(1); \
+	SUITE_DIR=$(2); \
+	SUITE_LABEL=$(3); \
+	$(KUBECTL) create namespace $$NS --dry-run=client -o yaml | $(KUBECTL) apply -f -; \
+	$(KUBECTL) label namespace $$NS e2e-suite=$$SUITE_LABEL --overwrite; \
+	$(KUBECTL) apply -f suites/common/gatewayclass.yaml; \
+	sed 's|registry.nordix.org/cloud-native/meridio-2|$(REGISTRY)|g; s|:latest|:$(VERSION)|g' \
+		$(PROJECT_ROOT)/config/templates/lb-deployment.yaml | \
+		$(KUBECTL) create configmap lb-template-override-$$SUITE_LABEL --from-file=lb-deployment.yaml=/dev/stdin -n $$NS --dry-run=client -o yaml | \
+		$(KUBECTL) apply -f -; \
+	cd $$SUITE_DIR && $(KUSTOMIZE) edit set image controller-manager=$(REGISTRY)/controller-manager:$(VERSION); \
+	cd $$SUITE_DIR && $(KUSTOMIZE) build . | $(KUBECTL) apply -f -; \
+	$(KUBECTL) set env deployment/meridio-2-controller-manager-$$SUITE_LABEL -n $$NS MERIDIO_TEMPLATE_PATH=/templates-override; \
+	if ! $(KUBECTL) get deployment meridio-2-controller-manager-$$SUITE_LABEL -n $$NS -o jsonpath='{.spec.template.spec.volumes[*].name}' | grep -q templates-override; then \
+		$(KUBECTL) patch deployment meridio-2-controller-manager-$$SUITE_LABEL -n $$NS --type=json -p='[{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"templates-override","mountPath":"/templates-override"}},{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"templates-override","configMap":{"name":"lb-template-override-'$$SUITE_LABEL'"}}}]'; \
+	fi; \
+	$(KUBECTL) wait --for=condition=Available --timeout=120s -n $$NS deployment/meridio-2-controller-manager-$$SUITE_LABEL; \
+	$(KUBECTL) wait --for=condition=Ready --timeout=60s -n $$NS certificate/meridio-2-serving-cert-$$SUITE_LABEL; \
+	$(KUBECTL) apply -f $$SUITE_DIR/rbac.yaml; \
+	$(KUBECTL) apply -f $$SUITE_DIR/nad.yaml -n $$NS; \
+	$(KUBECTL) apply -f $$SUITE_DIR/gateway.yaml -n $$NS; \
+	$(KUBECTL) apply -f $$SUITE_DIR/dg.yaml -n $$NS; \
+	$(KUBECTL) apply -f $$SUITE_DIR/routing.yaml -n $$NS; \
+	until $(foreach dep,$(4),$(KUBECTL) get deployment $(dep) -n $$NS >/dev/null 2>&1 &&) true; do sleep 1; done; \
+	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS $(foreach dep,$(4),deployment/$(dep)); \
+	sed 's|registry.nordix.org/cloud-native/meridio-2/network-sidecar:latest|$(REGISTRY)/network-sidecar:$(VERSION)|g' $$SUITE_DIR/targets.yaml | $(KUBECTL) apply -n $$NS -f -; \
+	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS $$($(KUBECTL) get deployment -n $$NS -l app -o name | grep target)
+endef
+
+################################################################################
 ##@ Suite: common-appnetwork
 ################################################################################
 
@@ -122,30 +158,7 @@ common-appnetwork: deploy-common-appnetwork test-common-appnetwork ## Deploy and
 
 .PHONY: deploy-common-appnetwork
 deploy-common-appnetwork: cluster ## Deploy common-appnetwork topology.
-	@NS=e2e-common-appnet; \
-	SUITE_DIR=$(shell pwd)/suites/common-appnetwork; \
-	$(KUBECTL) create namespace $$NS --dry-run=client -o yaml | $(KUBECTL) apply -f -; \
-	$(KUBECTL) label namespace $$NS e2e-suite=common-appnet --overwrite; \
-	$(KUBECTL) apply -f suites/common/gatewayclass.yaml; \
-	sed 's|registry.nordix.org/cloud-native/meridio-2|$(REGISTRY)|g; s|:latest|:$(VERSION)|g' \
-		$(PROJECT_ROOT)/config/templates/lb-deployment.yaml | \
-		$(KUBECTL) create configmap lb-template-override-common-appnet --from-file=lb-deployment.yaml=/dev/stdin -n $$NS --dry-run=client -o yaml | \
-		$(KUBECTL) apply -f -; \
-	cd $$SUITE_DIR && $(KUSTOMIZE) edit set image controller-manager=$(REGISTRY)/controller-manager:$(VERSION); \
-	cd $$SUITE_DIR && $(KUSTOMIZE) build . | $(KUBECTL) apply -f -; \
-	$(KUBECTL) set env deployment/meridio-2-controller-manager-common-appnet -n $$NS MERIDIO_TEMPLATE_PATH=/templates-override; \
-	$(KUBECTL) patch deployment meridio-2-controller-manager-common-appnet -n $$NS --type=json -p='[{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"templates-override","mountPath":"/templates-override"}},{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"templates-override","configMap":{"name":"lb-template-override-common-appnet"}}}]'; \
-	$(KUBECTL) wait --for=condition=Available --timeout=120s -n $$NS deployment/meridio-2-controller-manager-common-appnet; \
-	$(KUBECTL) wait --for=condition=Ready --timeout=60s -n $$NS certificate/meridio-2-serving-cert-common-appnet; \
-	$(KUBECTL) apply -f $$SUITE_DIR/rbac.yaml; \
-	$(KUBECTL) apply -f $$SUITE_DIR/nad.yaml -n $$NS; \
-	$(KUBECTL) apply -f $$SUITE_DIR/gateway.yaml -n $$NS; \
-	$(KUBECTL) apply -f $$SUITE_DIR/dg.yaml -n $$NS; \
-	$(KUBECTL) apply -f $$SUITE_DIR/routing.yaml -n $$NS; \
-	until $(KUBECTL) get deployment sllb-gw-b1 -n $$NS >/dev/null 2>&1 && $(KUBECTL) get deployment sllb-gw-b2 -n $$NS >/dev/null 2>&1; do sleep 1; done; \
-	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS deployment/sllb-gw-b1 deployment/sllb-gw-b2; \
-	sed 's|registry.nordix.org/cloud-native/meridio-2/network-sidecar:latest|$(REGISTRY)/network-sidecar:$(VERSION)|g' $$SUITE_DIR/targets.yaml | $(KUBECTL) apply -n $$NS -f -; \
-	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS deployment/target-b
+	$(call deploy-suite,e2e-common-appnet,$(shell pwd)/suites/common-appnetwork,common-appnet,sllb-gw-b1 sllb-gw-b2)
 
 .PHONY: test-common-appnetwork
 test-common-appnetwork: ## Run e2e tests for common-appnetwork suite.
@@ -166,30 +179,7 @@ separate-appnetwork: deploy-separate-appnetwork test-separate-appnetwork ## Depl
 
 .PHONY: deploy-separate-appnetwork
 deploy-separate-appnetwork: cluster ## Deploy separate-appnetwork topology.
-	@NS=e2e-separate-appnet; \
-	SUITE_DIR=$(shell pwd)/suites/separate-appnetwork; \
-	$(KUBECTL) create namespace $$NS --dry-run=client -o yaml | $(KUBECTL) apply -f -; \
-	$(KUBECTL) label namespace $$NS e2e-suite=separate-appnet --overwrite; \
-	$(KUBECTL) apply -f suites/common/gatewayclass.yaml; \
-	sed 's|registry.nordix.org/cloud-native/meridio-2|$(REGISTRY)|g; s|:latest|:$(VERSION)|g' \
-		$(PROJECT_ROOT)/config/templates/lb-deployment.yaml | \
-		$(KUBECTL) create configmap lb-template-override-separate-appnet --from-file=lb-deployment.yaml=/dev/stdin -n $$NS --dry-run=client -o yaml | \
-		$(KUBECTL) apply -f -; \
-	cd $$SUITE_DIR && $(KUSTOMIZE) edit set image controller-manager=$(REGISTRY)/controller-manager:$(VERSION); \
-	cd $$SUITE_DIR && $(KUSTOMIZE) build . | $(KUBECTL) apply -f -; \
-	$(KUBECTL) set env deployment/meridio-2-controller-manager-separate-appnet -n $$NS MERIDIO_TEMPLATE_PATH=/templates-override; \
-	$(KUBECTL) patch deployment meridio-2-controller-manager-separate-appnet -n $$NS --type=json -p='[{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"templates-override","mountPath":"/templates-override"}},{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"templates-override","configMap":{"name":"lb-template-override-separate-appnet"}}}]'; \
-	$(KUBECTL) wait --for=condition=Available --timeout=120s -n $$NS deployment/meridio-2-controller-manager-separate-appnet; \
-	$(KUBECTL) wait --for=condition=Ready --timeout=60s -n $$NS certificate/meridio-2-serving-cert-separate-appnet; \
-	$(KUBECTL) apply -f $$SUITE_DIR/rbac.yaml; \
-	$(KUBECTL) apply -f $$SUITE_DIR/nad.yaml -n $$NS; \
-	$(KUBECTL) apply -f $$SUITE_DIR/gateway.yaml -n $$NS; \
-	$(KUBECTL) apply -f $$SUITE_DIR/dg.yaml -n $$NS; \
-	$(KUBECTL) apply -f $$SUITE_DIR/routing.yaml -n $$NS; \
-	until $(KUBECTL) get deployment sllb-gw-a1 -n $$NS >/dev/null 2>&1 && $(KUBECTL) get deployment sllb-gw-a2 -n $$NS >/dev/null 2>&1; do sleep 1; done; \
-	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS deployment/sllb-gw-a1 deployment/sllb-gw-a2; \
-	sed 's|registry.nordix.org/cloud-native/meridio-2/network-sidecar:latest|$(REGISTRY)/network-sidecar:$(VERSION)|g' $$SUITE_DIR/targets.yaml | $(KUBECTL) apply -n $$NS -f -; \
-	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS deployment/target-a
+	$(call deploy-suite,e2e-separate-appnet,$(shell pwd)/suites/separate-appnetwork,separate-appnet,sllb-gw-a1 sllb-gw-a2)
 
 .PHONY: test-separate-appnetwork
 test-separate-appnetwork: ## Run e2e tests for separate-appnetwork suite.
