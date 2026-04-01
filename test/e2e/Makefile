@@ -143,7 +143,11 @@ define deploy-suite
 	$(KUBECTL) apply -f $$SUITE_DIR/gateway.yaml -n $$NS; \
 	$(KUBECTL) apply -f $$SUITE_DIR/dg.yaml -n $$NS; \
 	$(KUBECTL) apply -f $$SUITE_DIR/routing.yaml -n $$NS; \
-	until $(foreach dep,$(4),$(KUBECTL) get deployment $(dep) -n $$NS >/dev/null 2>&1 &&) true; do sleep 1; done; \
+	timeout=300; elapsed=0; \
+	until $(foreach dep,$(4),$(KUBECTL) get deployment $(dep) -n $$NS >/dev/null 2>&1 &&) true; do \
+		sleep 1; elapsed=$$((elapsed + 1)); \
+		if [ $$elapsed -ge $$timeout ]; then echo "Timeout waiting for deployments: $(4)"; exit 1; fi; \
+	done; \
 	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS $(foreach dep,$(4),deployment/$(dep)); \
 	sed 's|registry.nordix.org/cloud-native/meridio-2/network-sidecar:latest|$(REGISTRY)/network-sidecar:$(VERSION)|g' $$SUITE_DIR/targets.yaml | $(KUBECTL) apply -n $$NS -f -; \
 	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS $$($(KUBECTL) get deployment -n $$NS -l app -o name | grep target)
