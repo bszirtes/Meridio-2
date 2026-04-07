@@ -137,8 +137,7 @@ test: generate setup-envtest ## Run the unit tests.
 
 .PHONY: e2e
 e2e: ## Run end-to-end tests.
-	$(MAKE) -C test/e2e cluster
-	$(MAKE) -C test/e2e test
+	$(MAKE) -C test/e2e REGISTRY=$(REGISTRY) VERSION=$(VERSION) test
 	$(MAKE) -C test/e2e undeploy-all
 	$(MAKE) -C test/e2e cluster-cleanup
 
