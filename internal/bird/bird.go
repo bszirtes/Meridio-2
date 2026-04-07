@@ -44,6 +44,7 @@ type Bird struct {
 	ConfigFile  string
 	LogFile     string
 	LogFileSize int // bytes; if >0, enables rotation with 1 backup file
+	nl          routingOps
 	running     bool
 	mu          sync.Mutex
 }
@@ -62,6 +63,7 @@ func New(opts ...Option) *Bird {
 	b := &Bird{
 		SocketPath: "/var/run/bird/bird.ctl",
 		ConfigFile: "/etc/bird/bird.conf",
+		nl:         defaultRoutingOps{},
 	}
 	for _, o := range opts {
 		o(b)
@@ -125,7 +127,7 @@ func (b *Bird) Configure(ctx context.Context, vips []string, routers []*meridio2
 	// Install policy routes first to minimize misrouting window.
 	// Blackhole fallback ensures VIP traffic is dropped rather than
 	// leaked before BGP routes are available.
-	if err := setPolicyRoutes(vips); err != nil {
+	if err := setPolicyRoutes(b.nl, vips); err != nil {
 		return err
 	}
 
