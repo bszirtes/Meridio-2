@@ -148,15 +148,17 @@ func runRouter(ctx context.Context, cfg *config.RouterConfig) error {
 	setupLog.Info("starting router", "gateway", cfg.GatewayName, "namespace", cfg.GatewayNamespace)
 
 	ctx = ctrl.SetupSignalHandler()
+	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
 		if err := birdInstance.Run(ctx); err != nil {
 			setupLog.Error(err, "BIRD stopped")
 		}
+		cancel()
 	}()
 
 	// Start monitoring BGP connectivity
-	go monitorConnectivity(ctx, mgr, birdInstance)
+	go monitorConnectivity(ctx, cancel, mgr, birdInstance)
 
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
@@ -167,7 +169,8 @@ func runRouter(ctx context.Context, cfg *config.RouterConfig) error {
 }
 
 // monitorConnectivity monitors BGP connectivity and logs status changes
-func monitorConnectivity(ctx context.Context, mgr ctrl.Manager, birdInstance *bird.Bird) {
+func monitorConnectivity(ctx context.Context, cancel context.CancelFunc, mgr ctrl.Manager, birdInstance *bird.Bird) {
+	defer cancel()
 	log := ctrl.Log.WithName("monitor")
 
 	// Wait for manager cache to sync
