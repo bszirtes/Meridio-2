@@ -20,6 +20,7 @@ if [ -n "$KUSTOM_FILES" ]; then
     echo ""
 fi
 
+echo ""
 echo "Running 'make check' before commit..."
 
 make check
@@ -32,4 +33,5 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "✓ 'make check' passed. Proceeding with commit."
+echo ""
 exit 0

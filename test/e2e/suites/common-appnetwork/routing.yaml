@@ -1,5 +1,5 @@
 ---
-# gw-b1 router (VLAN 300, ASN 8105)
+# gw-b1 router (VLAN 300, ASN 64514)
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayRouter
 metadata:
@@ -10,8 +10,8 @@ spec:
   interface: "vlan-300"
   address: "169.254.101.150"
   bgp:
-    localASN: 8105
-    remoteASN: 4248829953
+    localASN: 64514
+    remoteASN: 4200000000
     localPort: 10179
     remotePort: 10179
     holdTime: 24s
@@ -41,7 +41,7 @@ spec:
   - "5000-5001"
   priority: 100
 ---
-# gw-b2 router (VLAN 400, ASN 8106)
+# gw-b2 router (VLAN 400, ASN 64515)
 apiVersion: meridio-2.nordix.org/v1alpha1
 kind: GatewayRouter
 metadata:
@@ -52,8 +52,8 @@ spec:
   interface: "vlan-400"
   address: "169.254.201.150"
   bgp:
-    localASN: 8106
-    remoteASN: 4248829953
+    localASN: 64515
+    remoteASN: 4200000000
     localPort: 10179
     remotePort: 10179
     holdTime: 24s

@@ -36,7 +36,7 @@ LOCALBIN ?= $(PROJECT_ROOT)/bin
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 
 ################################################################################
-##@ Cluster Setup
+##@ Cluster setup
 ################################################################################
 
 .PHONY: cluster
@@ -114,7 +114,7 @@ cluster-cleanup: ## Cleanup cluster dependencies.
 	docker network rm $(BREAKOUT_NETWORK) 2>/dev/null || true
 
 ################################################################################
-# Helper Functions
+# Helper functions
 ################################################################################
 
 # deploy-suite: Deploy a test suite
@@ -196,7 +196,7 @@ undeploy-separate-appnetwork: ## Undeploy separate-appnetwork topology.
 	$(KUBECTL) delete namespace $$NS --ignore-not-found=true
 
 ################################################################################
-##@ All Suites
+##@ All suites
 ################################################################################
 
 .PHONY: deploy-all

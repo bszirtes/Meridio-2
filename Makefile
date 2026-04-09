@@ -61,7 +61,7 @@ GIT_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE ?= $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 
 ################################################################################
-# Image: Build, tag, push
+# Image: build, tag, push
 ################################################################################
 
 .PHONY: build
