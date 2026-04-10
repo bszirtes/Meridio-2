@@ -36,32 +36,12 @@ jobs:
             tag="$branch"
           fi
 
-          echo "tag=$tag" >> $GITHUB_OUTPUT
-          echo "Using tag: $tag"
-
-  build-and-push:
-    name: Build and push ${{ matrix.image }}
-    runs-on: ubuntu-latest
-    needs: get-tag
-    strategy:
-      matrix:
-        image:
-          - controller-manager
-          - stateless-load-balancer
-          - router
-          - network-sidecar
-    steps:
-      - uses: actions/checkout@v6
-      - uses: docker/login-action@v4
-        with:
-          registry: ${{ secrets.HARBOR_REGISTRY }}
-          username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_PASSWORD }}
-      - run: make ${{ matrix.image }} REGISTRY=${{ secrets.HARBOR_REGISTRY }}/cloud-native/meridio-2 VERSION=${{ needs.get-tag.outputs.tag }} BUILD_STEPS="build tag push"
+          echo "tag=latest" >> $GITHUB_OUTPUT
+          echo "Using tag: latest"
 
   kind:
     runs-on: ubuntu-latest
-    needs: [get-tag, build-and-push]
+    needs: get-tag
     strategy:
       fail-fast: false
       matrix:
