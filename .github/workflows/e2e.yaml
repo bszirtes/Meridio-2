@@ -45,8 +45,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        k8s:
-          - v1.32.2@sha256:f226345927d7e348497136874b6d207e0b32cc52154ad8323129352923a3142f
         suite:
           - common-appnetwork
           - separate-appnetwork
@@ -60,7 +58,7 @@ jobs:
       - uses: helm/kind-action@v1
         with:
           version: ${{ env.KIND_VERSION }}
-          node_image: kindest/node:${{ matrix.k8s }}
+          node_image: kindest/node:v1.32.2@sha256:f226345927d7e348497136874b6d207e0b32cc52154ad8323129352923a3142f
           cluster_name: kind
           config: test/e2e/kind-cluster/kind-basic.yaml
       - uses: docker/login-action@v4
@@ -73,5 +71,9 @@ jobs:
           make -C test/e2e cluster REGISTRY=${{ secrets.HARBOR_REGISTRY }}/cloud-native/meridio-2 VERSION=${{ needs.get-tag.outputs.tag }}
           docker ps
           kubectl get all -A
-      - name: Run ${{ matrix.suite }} suite
+      - name: Deploy ${{ matrix.suite }} suite
+        run: |
+          make -C test/e2e deploy-${{ matrix.suite }} REGISTRY=${{ secrets.HARBOR_REGISTRY }}/cloud-native/meridio-2 VERSION=${{ needs.get-tag.outputs.tag }}
+          kubectl get all -A
+      - name: Run ${{ matrix.suite }} tests
         run: make -C test/e2e ${{ matrix.suite }} REGISTRY=${{ secrets.HARBOR_REGISTRY }}/cloud-native/meridio-2 VERSION=${{ needs.get-tag.outputs.tag }}
