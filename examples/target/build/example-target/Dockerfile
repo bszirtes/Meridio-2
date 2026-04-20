@@ -10,8 +10,23 @@ ARG HOME
 
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends \
-     iproute2 tcpdump net-tools iputils-ping netcat-traditional \
-     wget screen xz-utils strace nftables iperf3 libcap2-bin \
+     iproute2 \
+     tcpdump \
+     net-tools \
+     iputils-ping \
+     netcat-traditional \
+     wget \
+     screen \
+     xz-utils \
+     strace \
+     nftables \
+     iperf3 \
+     libcap2-bin \
+     software-properties-common \
+  && add-apt-repository -y ppa:dreibh/ppa \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+     netperfmeter-all \
   && setcap 'cap_sys_ptrace,cap_dac_override+ep' /usr/bin/ss \
   && setcap 'cap_sys_ptrace,cap_dac_override+ep' /usr/bin/netstat \
   && setcap 'cap_net_raw+ep' /usr/bin/ping \
@@ -21,7 +36,8 @@ RUN apt-get update -y \
 
 RUN groupadd --gid $UID $USER \
   && useradd $USER --create-home --home-dir $HOME --no-log-init --uid $UID --gid $UID \
-  && chown -R :root "${HOME}" && chmod -R g+s=u "${HOME}"
+  && chown -R :root "${HOME}" \
+  && chmod -R g+s=u "${HOME}"
 
 WORKDIR $HOME
 
@@ -32,4 +48,5 @@ ADD https://github.com/Nordix/mconnect/releases/download/v2.2.0/mconnect.xz mcon
 RUN unxz mconnect.xz && chmod a+x mconnect
 
 USER ${UID}:${UID}
+
 CMD ["tail", "-f", "/dev/null"]

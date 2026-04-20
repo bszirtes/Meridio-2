@@ -18,7 +18,7 @@ help: ## Display this help.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-IMAGES ?= controller-manager stateless-load-balancer router network-sidecar
+IMAGES ?= controller-manager stateless-load-balancer router network-sidecar example-target
 
 # Versions
 VERSION ?= latest
