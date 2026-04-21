@@ -1,30 +1,14 @@
-FROM ubuntu:24.04
+FROM golang:1.23 AS builder
 
-ENV DEBIAN_FRONTEND=noninteractive
+RUN git clone --depth 1 -b v1.7.0 https://github.com/Nordix/ctraffic.git /tmp/ctraffic && \
+    cd /tmp/ctraffic && \
+    CGO_ENABLED=0 go build -o ctraffic ./cmd/ctraffic
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        lksctp-tools \
-        iproute2 \
-        tcpdump \
-        iputils-ping \
-        bird2 \
-        ethtool \
-        xz-utils \
-        curl \
-        software-properties-common \
-    && add-apt-repository -y ppa:dreibh/ppa \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        netperfmeter-all \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+FROM alpine:latest
 
-WORKDIR /root/
+RUN apk update && apk add iproute2 iputils tcpdump bird ethtool
 
-ADD https://github.com/Nordix/ctraffic/releases/download/v1.7.0/ctraffic.gz ctraffic.gz
-RUN gunzip ctraffic.gz \
-  && chmod u+x ctraffic \
-  && mv ctraffic /usr/bin/
+RUN mkdir -p /etc/bird/ /run/bird
 
 ARG BIRD_CONFIG_PATH=.
 
@@ -35,5 +19,7 @@ COPY $BIRD_CONFIG_PATH/bird-filler-net.conf /etc/bird/
 
 COPY $BIRD_CONFIG_PATH/init.sh /init.sh
 RUN chmod +x /init.sh
+
+COPY --from=builder /tmp/ctraffic/ctraffic /opt/ctraffic
 
 CMD ["/init.sh"]

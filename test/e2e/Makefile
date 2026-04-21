@@ -115,8 +115,12 @@ vpn-gateway: ## Deploy VPN gateway container.
 rp-filter: ## Configure rp_filter=2 on all Kind nodes.
 	@echo "Configuring rp_filter=2 on all nodes..."; \
 	for node in $$($(KIND) get nodes --name $(CLUSTER_NAME)); do \
-		docker exec $$node sysctl -w net.ipv4.conf.all.rp_filter=2; \
-		docker exec $$node sysctl -w net.ipv4.conf.default.rp_filter=2; \
+		docker exec $$node sh -c ' \
+			sysctl -w net.ipv4.conf.all.rp_filter=2 && \
+			sysctl -w net.ipv4.conf.default.rp_filter=2 && \
+			echo "net.ipv4.conf.all.rp_filter=2" >> /etc/sysctl.conf && \
+			echo "net.ipv4.conf.default.rp_filter=2" >> /etc/sysctl.conf \
+		'; \
 	done
 
 .PHONY: cluster-cleanup
@@ -160,7 +164,7 @@ define deploy-suite
 		if [ $$elapsed -ge $$timeout ]; then echo "Timeout waiting for deployments: $(4)"; exit 1; fi; \
 	done; \
 	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS $(foreach dep,$(4),deployment/$(dep)); \
-	sed 's|registry.nordix.org/cloud-native/meridio-2/network-sidecar:latest|$(REGISTRY)/network-sidecar:$(VERSION)|g; s|registry.nordix.org/cloud-native/meridio-2/example-target:latest|$(REGISTRY)/example-target:$(VERSION)|g' $$SUITE_DIR/targets.yaml | $(KUBECTL) apply -n $$NS -f -; \
+	sed 's|registry.nordix.org/cloud-native/meridio-2/network-sidecar:latest|$(REGISTRY)/network-sidecar:$(VERSION)|g' $$SUITE_DIR/targets.yaml | $(KUBECTL) apply -n $$NS -f -; \
 	$(KUBECTL) wait --for=condition=Available --timeout=300s -n $$NS $$($(KUBECTL) get deployment -n $$NS -l app -o name | grep target)
 endef
 
