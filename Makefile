@@ -18,7 +18,7 @@ help: ## Display this help.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-IMAGES ?= controller-manager stateless-load-balancer router network-sidecar
+IMAGES ?= controller-manager stateless-load-balancer router network-sidecar example-target
 
 # Versions
 VERSION ?= latest
@@ -26,6 +26,7 @@ VERSION_CONTROLLER_MANAGER ?= $(VERSION)
 VERSION_SLLB ?= $(VERSION)
 VERSION_ROUTER ?= $(VERSION)
 VERSION_NETWORK_SIDECAR ?= $(VERSION)
+VERSION_EXAMPLE_TARGET ?= $(VERSION)
 LOCAL_VERSION ?= $(VERSION)
 
 # Container registry
@@ -106,7 +107,7 @@ network-sidecar: ## Build the network-sidecar.
 
 .PHONY: example-target
 example-target: ## Build the example target application.
-	BUILD_DIR=examples/target/build IMAGE=example-target $(MAKE) -s $(BUILD_STEPS)
+	VERSION=$(VERSION_EXAMPLE_TARGET) BUILD_DIR=examples/target/build IMAGE=example-target $(MAKE) -s $(BUILD_STEPS)
 
 ################################################################################
 ##@ Testing & Code check
