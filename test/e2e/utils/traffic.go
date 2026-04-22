@@ -24,7 +24,7 @@ func SendTraffic(vip string, port int, protocol string, nconn int) (map[string]i
 	}
 
 	cmdStr := fmt.Sprintf(
-		"docker exec vpn-gateway /opt/ctraffic %s -address %s -nconn %d -timeout 10s -stats all",
+		"docker exec vpn-gateway ctraffic %s -address %s -nconn %d -timeout 10s -stats all",
 		protoFlag, addr, nconn,
 	)
 	cmd := exec.Command("/bin/sh", "-c", cmdStr)
