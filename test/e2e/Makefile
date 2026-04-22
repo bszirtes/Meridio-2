@@ -153,6 +153,11 @@ define deploy-suite
 	fi; \
 	$(KUBECTL) wait --for=condition=Available --timeout=180s -n $$NS deployment/meridio-2-controller-manager-$$SUITE_LABEL; \
 	$(KUBECTL) wait --for=condition=Ready --timeout=60s -n $$NS certificate/meridio-2-serving-cert-$$SUITE_LABEL; \
+	timeout=60; elapsed=0; \
+	until $(KUBECTL) get endpoints -n $$NS meridio-2-webhook-service-$$SUITE_LABEL -o jsonpath='{.subsets[*].addresses[*].ip}' | grep -q .; do \
+		sleep 1; elapsed=$$((elapsed + 1)); \
+		if [ $$elapsed -ge $$timeout ]; then echo "Timeout waiting for webhook endpoint"; exit 1; fi; \
+	done; \
 	$(KUBECTL) apply -f $$SUITE_DIR/rbac.yaml; \
 	$(KUBECTL) apply -f $$SUITE_DIR/nad.yaml -n $$NS; \
 	$(KUBECTL) apply -f $$SUITE_DIR/gateway.yaml -n $$NS; \
