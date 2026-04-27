@@ -28,7 +28,7 @@ MULTUS_VERSION ?= v4.1.2
 WHEREABOUTS_VERSION ?= v0.8.0
 
 # Suites
-SUITES ?= common-appnetwork separate-appnetwork
+SUITES ?= common-appnetwork separate-appnetwork sctp-multihoming
 
 # Test flags (e.g., make test GINKGO_FLAGS="--junit-report=report.xml")
 GINKGO_FLAGS ?=
@@ -213,6 +213,27 @@ test-separate-appnetwork: ## Run e2e tests for separate-appnetwork suite.
 undeploy-separate-appnetwork: ## Undeploy separate-appnetwork topology.
 	@NS=e2e-separate-appnet; \
 	$(KUBECTL) delete validatingwebhookconfiguration meridio-2-validating-webhook-configuration-separate-appnet --ignore-not-found=true; \
+	$(KUBECTL) delete namespace $$NS --ignore-not-found=true
+
+################################################################################
+##@ Suite: sctp-multihoming
+################################################################################
+
+.PHONY: sctp-multihoming
+sctp-multihoming: deploy-sctp-multihoming test-sctp-multihoming ## Deploy and test sctp-multihoming suite.
+
+.PHONY: deploy-sctp-multihoming
+deploy-sctp-multihoming: cluster ## Deploy sctp-multihoming topology.
+	$(call deploy-suite,e2e-sctp-multihoming,$(shell pwd)/suites/sctp-multihoming,sctp-multihoming,sllb-sctp-gw1 sllb-sctp-gw2)
+
+.PHONY: test-sctp-multihoming
+test-sctp-multihoming: ## Run e2e tests for sctp-multihoming suite.
+	cd $(PROJECT_ROOT)/test/e2e && go run github.com/onsi/ginkgo/v2/ginkgo -v --tags=e2e --focus="SCTP Multihoming" $(GINKGO_FLAGS)
+
+.PHONY: undeploy-sctp-multihoming
+undeploy-sctp-multihoming: ## Undeploy sctp-multihoming topology.
+	@NS=e2e-sctp-multihoming; \
+	$(KUBECTL) delete validatingwebhookconfiguration meridio-2-validating-webhook-configuration-sctp-multihoming --ignore-not-found=true; \
 	$(KUBECTL) delete namespace $$NS --ignore-not-found=true
 
 ################################################################################
