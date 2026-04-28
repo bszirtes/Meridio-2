@@ -209,6 +209,65 @@ var _ = Describe("E2E SCTP Multihoming Suites", func() {
 						})
 					}
 				})
+
+				Context("SCTP multihoming", func() {
+					It("maintains zero loss with saturated bidirectional traffic", func() {
+						By("running NetPerfMeter SCTP test for 30 seconds")
+						
+						// Start NetPerfMeter in background
+						done := make(chan *e2eutils.NetPerfMeterResult, 1)
+						errCh := make(chan error, 1)
+						
+						go func() {
+							result, err := e2eutils.RunNetPerfMeterClient(e2eutils.NetPerfMeterConfig{
+								Target:     suite.gateways[0].vip + ":9000",
+								LocalAddrs: []string{"200.100.0.100", "200.100.1.100"},
+								Protocol:   "sctp",
+								Duration:   30,
+								FrameRate:  "const0",
+								FrameSize:  "const1400",
+							})
+							done <- result
+							if err != nil {
+								errCh <- err
+							}
+						}()
+
+						By("waiting for SCTP association to establish")
+						time.Sleep(3 * time.Second)
+
+						By("verifying SCTP association exists")
+						found, details, err := e2eutils.CheckSCTPAssociationWithVIPs(
+							9000,
+							[]string{"200.100.0.100", "200.100.1.100"},
+							[]string{suite.gateways[0].vip, suite.gateways[1].vip},
+						)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(found).To(BeTrue(), "SCTP association not found with all local addresses and VIPs")
+						GinkgoWriter.Printf("SCTP association found:\n%s\n", details)
+
+						By("waiting for NetPerfMeter to complete")
+						var result *e2eutils.NetPerfMeterResult
+						select {
+						case result = <-done:
+							GinkgoWriter.Printf("NetPerfMeter completed\n")
+						case <-time.After(35 * time.Second):
+							Fail("NetPerfMeter timed out")
+						}
+
+						By("validating zero packet and frame loss")
+						GinkgoWriter.Printf("NetPerfMeter results:\n")
+						GinkgoWriter.Printf("  Transmitted: %d bytes\n", result.TransmittedBytes)
+						GinkgoWriter.Printf("  Received: %d bytes\n", result.ReceivedBytes)
+						GinkgoWriter.Printf("  Packet Loss: %d\n", result.PacketLoss)
+						GinkgoWriter.Printf("  Frame Loss: %d\n", result.FrameLoss)
+
+						Expect(result.TransmittedBytes).To(BeNumerically(">", 0))
+						Expect(result.ReceivedBytes).To(BeNumerically(">", 0))
+						Expect(result.PacketLoss).To(Equal(0))
+						Expect(result.FrameLoss).To(Equal(0))
+					})
+				})
 			})
 		})
 	}
