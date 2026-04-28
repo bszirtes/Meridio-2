@@ -1,0 +1,94 @@
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: L34Route
+metadata:
+  name: sctp-route1
+spec:
+  parentRefs:
+  - name: sctp-gw1
+  backendRefs:
+  - name: sctp-dg1
+    group: meridio-2.nordix.org
+    kind: DistributionGroup
+  destinationCIDRs:
+  - "50.0.0.1/32"
+  sourceCIDRs:
+  - "0.0.0.0/0"
+  sourcePorts:
+  - "0-65535"
+  destinationPorts:
+  - "9000"
+  - "9001"
+  protocols:
+  - TCP
+  - SCTP
+  priority: 1
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: L34Route
+metadata:
+  name: sctp-route2
+spec:
+  parentRefs:
+  - name: sctp-gw2
+  backendRefs:
+  - name: sctp-dg2
+    group: meridio-2.nordix.org
+    kind: DistributionGroup
+  destinationCIDRs:
+  - "50.0.0.2/32"
+  sourceCIDRs:
+  - "0.0.0.0/0"
+  sourcePorts:
+  - "0-65535"
+  destinationPorts:
+  - "9000"
+  - "9001"
+  protocols:
+  - TCP
+  - SCTP
+  priority: 1
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayRouter
+metadata:
+  name: sctp-gw1-router-vlan500
+spec:
+  gatewayRef:
+    name: sctp-gw1
+    namespace: e2e-sctp-multihoming
+  address: 169.254.102.150
+  interface: vlan-500
+  bgp:
+    localASN: 64516
+    remoteASN: 4200000000
+    holdTime: 24s
+    localPort: 10179
+    remotePort: 10179
+    bfd:
+      switch: true
+      minTx: 300ms
+      minRx: 300ms
+      multiplier: 5
+---
+apiVersion: meridio-2.nordix.org/v1alpha1
+kind: GatewayRouter
+metadata:
+  name: sctp-gw2-router-vlan600
+spec:
+  gatewayRef:
+    name: sctp-gw2
+    namespace: e2e-sctp-multihoming
+  address: 169.254.202.150
+  interface: vlan-600
+  bgp:
+    localASN: 64517
+    remoteASN: 4200000000
+    holdTime: 24s
+    localPort: 10179
+    remotePort: 10179
+    bfd:
+      switch: true
+      minTx: 300ms
+      minRx: 300ms
+      multiplier: 5

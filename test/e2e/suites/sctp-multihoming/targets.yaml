@@ -1,0 +1,59 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sctp-target
+  labels:
+    app: sctp-target
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sctp-target
+  template:
+    metadata:
+      labels:
+        app: sctp-target
+      annotations:
+        k8s.v1.cni.cncf.io/networks: app-net-sctp1, app-net-sctp2
+    spec:
+      serviceAccountName: meridio-2-network-sidecar
+      containers:
+      - name: example-target
+        image: registry.nordix.org/cloud-native/meridio-2/example-target:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          netperfmeter 9000
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10011
+          capabilities:
+            drop: ["ALL"]
+      - name: network-sidecar
+        image: registry.nordix.org/cloud-native/meridio-2/network-sidecar:latest
+        imagePullPolicy: IfNotPresent
+        args:
+        - --pod-name=$(POD_NAME)
+        - --pod-namespace=$(POD_NAMESPACE)
+        - --pod-uid=$(POD_UID)
+        - --log-level=debug
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        securityContext:
+          runAsNonRoot: true
+          capabilities:
+            add: ["NET_ADMIN"]
+            drop: ["ALL"]
