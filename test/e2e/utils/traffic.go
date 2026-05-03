@@ -81,12 +81,13 @@ func parseCtrafficOutput(output []byte) (map[string]int, int, error) {
 
 // NetPerfMeterConfig holds configuration for NetPerfMeter client.
 type NetPerfMeterConfig struct {
-	Target     string   // "VIP:port"
-	LocalAddrs []string // Client local addresses for multihoming
-	Protocol   string   // "sctp", "tcp", "udp"
-	Duration   int      // Test duration in seconds
-	FrameRate  string   // e.g., "const0" (saturated), "const25"
-	FrameSize  string   // e.g., "const1400"
+	Target         string   // "VIP:port"
+	LocalAddrs     []string // Client local addresses for multihoming
+	Protocol       string   // "sctp", "tcp", "udp"
+	Duration       int      // Test duration in seconds
+	FrameRate      string   // e.g., "const0" (saturated), "const25"
+	FrameSize      string   // e.g., "const1400"
+	ControlOverTCP bool     // Use TCP for control channel instead of SCTP
 }
 
 // NetPerfMeterResult holds parsed NetPerfMeter output.
@@ -105,11 +106,16 @@ func RunNetPerfMeterClient(cfg NetPerfMeterConfig) (*NetPerfMeterResult, error) 
 		localAddrsArg = fmt.Sprintf("--local=%s", strings.Join(cfg.LocalAddrs, ","))
 	}
 
+	controlOverTCPArg := ""
+	if cfg.ControlOverTCP {
+		controlOverTCPArg = "--control-over-tcp"
+	}
+
 	trafficSpec := fmt.Sprintf("%s:%s:%s:%s", cfg.FrameRate, cfg.FrameSize, cfg.FrameRate, cfg.FrameSize)
 
 	cmdStr := fmt.Sprintf(
-		"docker exec vpn-gateway netperfmeter %s %s -runtime=%d -%s %s",
-		cfg.Target, localAddrsArg, cfg.Duration, cfg.Protocol, trafficSpec,
+		"docker exec vpn-gateway netperfmeter %s %s %s -runtime=%d -%s %s",
+		cfg.Target, localAddrsArg, controlOverTCPArg, cfg.Duration, cfg.Protocol, trafficSpec,
 	)
 
 	cmd := exec.Command("/bin/sh", "-c", cmdStr)

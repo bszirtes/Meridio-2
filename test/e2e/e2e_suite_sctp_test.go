@@ -220,12 +220,13 @@ var _ = Describe("E2E SCTP Multihoming Suites", func() {
 						
 						go func() {
 							result, err := e2eutils.RunNetPerfMeterClient(e2eutils.NetPerfMeterConfig{
-								Target:     suite.gateways[0].vip + ":9000",
-								LocalAddrs: []string{"200.100.0.100", "200.100.1.100"},
-								Protocol:   "sctp",
-								Duration:   30,
-								FrameRate:  "const0",
-								FrameSize:  "const1400",
+								Target:         suite.gateways[0].vip + ":9000",
+								LocalAddrs:     []string{"200.100.0.100", "200.100.1.100"},
+								Protocol:       "sctp",
+								Duration:       30,
+								FrameRate:      "const0",
+								FrameSize:      "const1400",
+								ControlOverTCP: true,
 							})
 							done <- result
 							if err != nil {
